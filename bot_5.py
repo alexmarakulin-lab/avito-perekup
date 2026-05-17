@@ -9,7 +9,7 @@ from telegram.constants import ChatAction
 
 # ========== НАСТРОЙКИ ==========
 TELEGRAM_TOKEN = "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_HISTORY = 20
 MAX_MESSAGE_LENGTH = 4096
