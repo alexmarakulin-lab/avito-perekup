@@ -228,4 +228,23 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Бот запущен! Нажми Ctrl+C чтобы остановить.")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
+import asyncio
+
+async def health_check():
+    while True:
+        try:
+            await asyncio.sleep(300)  # каждые 5 минут
+            logging.info("✅ Бот живой")
+        except Exception as e:
+            logging.error(f"Health check error: {e}")
+
+# В main добавь:
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("✅ Бот запущен!")
+    app.run_polling(drop_pending_updates=True)  # drop_pending_updates убирает зависшие апдейты
