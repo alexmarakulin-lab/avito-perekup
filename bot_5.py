@@ -2,7 +2,9 @@
 import logging
 import asyncio
 import time
+import io
 import httpx
+import fitz  # pymupdf
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 from telegram.constants import ChatAction
@@ -11,12 +13,14 @@ from telegram.constants import ChatAction
 TELEGRAM_TOKEN = "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY"
 GROQ_API_KEY = "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"
 GROQ_MODEL = "llama-3.3-70b-versatile"
+SERPER_API_KEY = ""  # ВСТАВЬ КЛЮЧ с serper.dev (бесплатно 2500 запросов)
 MAX_HISTORY = 20
 MAX_MESSAGE_LENGTH = 4096
 RETRY_ATTEMPTS = 3
 RETRY_DELAY = 2
 TYPING_INTERVAL = 4
 RATE_LIMIT_SECONDS = 2
+MAX_PDF_CHARS = 12000  # максимум символов из PDF для отправки в Groq
 # ================================
 
 logging.basicConfig(
@@ -350,7 +354,6 @@ OG: 1.043-1.045 | FG: ~1.011 | IBU: 11-12 | Цвет: ~8 EBC | CO2: 3,2-3,8 об
 - На личные вопросы отвечать дружелюбно
 - Язык: русский"""
 
-# Готовые тексты для кнопок
 SECTION_TEXTS = {
     # ===== СЛАБОТОЧНЫЕ СИСТЕМЫ =====
     "🔥 СПС": (
@@ -570,9 +573,11 @@ SECTION_TEXTS = {
     ),
 }
 
+
 conversation_history: dict = {}
 last_message_time: dict = {}
 processing_users: set = set()
+pdf_context: dict = {}  # временное хранение текста PDF по user_id
 
 
 def get_main_keyboard():
@@ -582,7 +587,8 @@ def get_main_keyboard():
         [KeyboardButton("🔌 СКС"), KeyboardButton("⚡ Питание")],
         [KeyboardButton("📋 Документация"), KeyboardButton("🍺 Пивоварение")],
         [KeyboardButton("🥃 Дистилляция"), KeyboardButton("🌾 Рецепты браг")],
-        [KeyboardButton("🍋 Ur-Weizen"), KeyboardButton("🔄 Сброс истории")],
+        [KeyboardButton("🍋 Ur-Weizen"), KeyboardButton("🌐 Новости")],
+        [KeyboardButton("🔄 Сброс истории")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -596,11 +602,69 @@ async def send_typing_action(context, chat_id: int, stop_event: asyncio.Event):
         await asyncio.sleep(TYPING_INTERVAL)
 
 
-async def ask_groq(user_id: int, user_message: str) -> str:
+# ===== ПОИСК НОВОСТЕЙ =====
+async def search_news(query: str) -> str:
+    """Поиск актуальных новостей через Serper API (Google Search)."""
+    if not SERPER_API_KEY:
+        return ""
+    try:
+        url = "https://google.serper.dev/news"
+        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+        payload = {"q": query, "num": 5, "hl": "ru", "gl": "ru"}
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        results = data.get("news", [])
+        if not results:
+            return ""
+        lines = ["=== АКТУАЛЬНЫЕ НОВОСТИ ==="]
+        for i, item in enumerate(results[:5], 1):
+            title = item.get("title", "")
+            snippet = item.get("snippet", "")
+            date = item.get("date", "")
+            source = item.get("source", "")
+            lines.append(f"{i}. [{date}] {source}: {title}. {snippet}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"Ошибка поиска новостей: {e}")
+        return ""
+
+
+# ===== ЧТЕНИЕ PDF =====
+def extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Извлекает текст из PDF с помощью PyMuPDF."""
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        pages_text = []
+        for page in doc:
+            pages_text.append(page.get_text())
+        doc.close()
+        full_text = "\n".join(pages_text).strip()
+        if len(full_text) > MAX_PDF_CHARS:
+            full_text = full_text[:MAX_PDF_CHARS] + "\n\n[... текст обрезан, слишком большой PDF ...]"
+        return full_text
+    except Exception as e:
+        logger.error(f"Ошибка чтения PDF: {e}")
+        return ""
+
+
+# ===== ЗАПРОС К GROQ =====
+async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> str:
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    conversation_history[user_id].append({"role": "user", "content": user_message})
+    # Если есть PDF-контекст — добавляем к вопросу
+    pdf_text = pdf_context.get(user_id, "")
+    full_message = user_message
+    if pdf_text:
+        full_message = f"[СОДЕРЖИМОЕ PDF]:\n{pdf_text}\n\n[ВОПРОС ПОЛЬЗОВАТЕЛЯ]:\n{user_message}"
+
+    # Если есть свежие новости — добавляем
+    if extra_context:
+        full_message = extra_context + "\n\n" + full_message
+
+    conversation_history[user_id].append({"role": "user", "content": full_message})
 
     if len(conversation_history[user_id]) > MAX_HISTORY:
         conversation_history[user_id] = conversation_history[user_id][-MAX_HISTORY:]
@@ -622,7 +686,6 @@ async def ask_groq(user_id: int, user_message: str) -> str:
                 response.raise_for_status()
                 data = response.json()
                 answer = data["choices"][0]["message"]["content"]
-
             conversation_history[user_id].append({"role": "assistant", "content": answer})
             logger.info(f"OK: user={user_id}, attempt={attempt}")
             return answer
@@ -642,11 +705,11 @@ async def ask_groq(user_id: int, user_message: str) -> str:
     raise Exception(f"groq_недоступен: {last_error}")
 
 
+# ===== ОТПРАВКА ДЛИННЫХ СООБЩЕНИЙ =====
 async def send_long_message(update: Update, text: str):
     if len(text) <= MAX_MESSAGE_LENGTH:
         await update.message.reply_text(text, reply_markup=get_main_keyboard())
         return
-
     parts = []
     while text:
         if len(text) <= MAX_MESSAGE_LENGTH:
@@ -657,7 +720,6 @@ async def send_long_message(update: Update, text: str):
             split_at = MAX_MESSAGE_LENGTH
         parts.append(text[:split_at])
         text = text[split_at:].lstrip()
-
     for i, part in enumerate(parts):
         markup = get_main_keyboard() if i == len(parts) - 1 else None
         await update.message.reply_text(part, reply_markup=markup)
@@ -665,19 +727,21 @@ async def send_long_message(update: Update, text: str):
             await asyncio.sleep(0.3)
 
 
+# ===== КОМАНДЫ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "коллега"
     conversation_history[user_id] = []
+    pdf_context.pop(user_id, None)
     logger.info(f"START: user={user_id} ({user_name})")
     await update.message.reply_text(
         f"👋 Привет, {user_name}!\n\n"
-        "Я эксперт сразу в двух областях:\n\n"
-        "🏗 Слаботочные системы — СПС, СОУЭ, СКУД, CCTV, СКС, питание, документация. "
-        "Актуальная нормативная база 2025-2026.\n\n"
-        "🍺 Пивоварение и дистилляция — рецептура, расчёты, технология от затирания "
-        "до розлива и от браги до выдержки в бочке.\n\n"
-        "Выбери раздел или задай вопрос напрямую 👇",
+        "Я многопрофильный ИИ-ассистент. Умею:\n\n"
+        "🏗 Слаботочные системы — СПС, СОУЭ, СКУД, CCTV, СКС (нормы 2025-2026)\n"
+        "🍺 Пивоварение и дистилляция — рецептура, расчёты, технология\n"
+        "📄 Читать PDF — пришли файл и задай вопрос по нему\n"
+        "🌐 Искать свежие новости — кнопка Новости или спроси сам\n\n"
+        "Выбери раздел или задай вопрос 👇",
         reply_markup=get_main_keyboard()
     )
 
@@ -685,43 +749,115 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conversation_history[user_id] = []
+    pdf_context.pop(user_id, None)
     logger.info(f"RESET: user={user_id}")
-    await update.message.reply_text("🔄 История очищена! Начинаем заново.", reply_markup=get_main_keyboard())
+    await update.message.reply_text("🔄 История и PDF-контекст очищены!", reply_markup=get_main_keyboard())
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📖 Как пользоваться:\n\n"
-        "• Нажми кнопку раздела — получишь описание темы\n"
-        "• Задай любой вопрос текстом\n"
-        "• Попроси расчёт — дам формулы и цифры\n"
-        "• /reset — очистить историю диалога\n\n"
-        "Примеры по слаботочке:\n"
-        "— Сколько извещателей нужно на 80 м²?\n"
+        "📖 Возможности бота:\n\n"
+        "📄 PDF — пришли любой PDF-файл, бот прочитает его и ответит на вопросы\n"
+        "🌐 Новости — свежие новости по любой теме (нажми кнопку или напиши тему)\n"
+        "🔥 СПС, СОУЭ, СКУД, CCTV, СКС, Питание, Документация — слаботочные системы\n"
+        "🍺 Пивоварение, 🥃 Дистилляция, 🌾 Рецепты — напитки профуровня\n"
+        "🍋 Ur-Weizen — мой рецепт пшеничного пива\n\n"
+        "Примеры:\n"
+        "— Пришли PDF с проектом → \"Какие кабели указаны в спецификации?\"\n"
+        "— Напиши \"последние новости пожарная безопасность\"\n"
         "— Рассчитай АКБ: ток 0.5А, резерв 24 часа\n"
-        "— Какой кабель для шлейфа СПС?\n"
-        "— Отличия СП 3.13130.2009 от 2026?\n\n"
-        "Примеры по пивоварению/дистилляции:\n"
-        "— Рецепт IPA на 25 литров, горечь 60 IBU\n"
-        "— Рассчитай выход спирта из 30 л зерновой браги\n"
-        "— Как правильно отобрать головы при перегоне?\n"
-        "— Сколько дубовой щепы на 3 литра дистиллята?",
+        "— Рецепт IPA на 25 литров, 60 IBU\n\n"
+        "/reset — очистить историю и PDF",
         reply_markup=get_main_keyboard()
     )
 
 
+# ===== ОБРАБОТКА PDF =====
+async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id in processing_users:
+        await update.message.reply_text("⏳ Подожди, обрабатываю предыдущий запрос...")
+        return
+
+    processing_users.add(user_id)
+    stop_typing = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action(context, update.effective_chat.id, stop_typing)
+    )
+
+    try:
+        await update.message.reply_text("📄 Получил PDF, читаю...")
+        doc = update.message.document
+        file = await context.bot.get_file(doc.file_id)
+        pdf_bytes = await file.download_as_bytearray()
+
+        text = extract_pdf_text(bytes(pdf_bytes))
+
+        if not text or len(text.strip()) < 50:
+            stop_typing.set()
+            await typing_task
+            await update.message.reply_text(
+                "❌ Не удалось извлечь текст из PDF. Возможно, это сканированный документ (изображение). "
+                "Попробуй PDF с текстовым слоем.",
+                reply_markup=get_main_keyboard()
+            )
+            return
+
+        pdf_context[user_id] = text
+        char_count = len(text)
+        page_info = f"~{char_count} символов"
+
+        stop_typing.set()
+        await typing_task
+        await update.message.reply_text(
+            f"✅ PDF прочитан ({page_info}).\n\n"
+            "Теперь задавай любые вопросы по содержимому документа!\n"
+            "Например: \"Какое оборудование указано?\", \"Сделай краткое резюме\", "
+            "\"Какие нормы упоминаются?\"\n\n"
+            "Чтобы убрать PDF из контекста — нажми 🔄 Сброс истории",
+            reply_markup=get_main_keyboard()
+        )
+        logger.info(f"PDF loaded: user={user_id}, chars={char_count}")
+
+    except Exception as e:
+        stop_typing.set()
+        await typing_task
+        logger.error(f"PDF error: user={user_id}: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Ошибка при чтении PDF. Попробуй другой файл.",
+            reply_markup=get_main_keyboard()
+        )
+    finally:
+        processing_users.discard(user_id)
+
+
+# ===== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_text = update.message.text.strip()
 
-    # Сброс истории
+    # Сброс
     if user_text == "🔄 Сброс истории":
         await reset_cmd(update, context)
         return
 
-    # Кнопки разделов — готовый текст без запроса к Groq
+    # Кнопки разделов — готовый текст
     if user_text in SECTION_TEXTS:
         await update.message.reply_text(SECTION_TEXTS[user_text], reply_markup=get_main_keyboard())
+        return
+
+    # Кнопка Новости
+    if user_text == "🌐 Новости":
+        await update.message.reply_text(
+            "🌐 По какой теме ищем новости?\n\n"
+            "Напиши тему, например:\n"
+            "— пожарная безопасность\n"
+            "— пивоварение\n"
+            "— слаботочные системы\n"
+            "— строительные нормы 2026",
+            reply_markup=get_main_keyboard()
+        )
         return
 
     # Антиспам
@@ -743,7 +879,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         logger.info(f"MSG: user={user_id}: {user_text[:80]}")
-        answer = await ask_groq(user_id, user_text)
+
+        # Определяем — нужны ли новости (ключевые слова)
+        news_keywords = ["новост", "последние", "свежи", "сегодня", "2025", "2026",
+                         "актуальн", "что нового", "что произошло", "последни"]
+        need_news = any(kw in user_text.lower() for kw in news_keywords)
+
+        extra_context = ""
+        if need_news and SERPER_API_KEY:
+            extra_context = await search_news(user_text)
+
+        answer = await ask_groq(user_id, user_text, extra_context)
         stop_typing.set()
         await typing_task
         await send_long_message(update, answer)
@@ -753,16 +899,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await typing_task
         err = str(e)
         logger.error(f"ERR: user={user_id}: {err}", exc_info=True)
-
         if "неверный_ключ" in err:
             msg = "❌ Проблема с API ключом. Обратитесь к администратору."
         elif "groq_недоступен" in err:
             msg = "⏱ Сервис временно недоступен. Попробуй через 30 секунд."
         else:
             msg = "❌ Произошла ошибка. Попробуй ещё раз или нажми 🔄 Сброс истории."
-
         await update.message.reply_text(msg, reply_markup=get_main_keyboard())
-
     finally:
         processing_users.discard(user_id)
 
@@ -777,6 +920,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset_cmd))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
     logger.info("Бот запущен!")
