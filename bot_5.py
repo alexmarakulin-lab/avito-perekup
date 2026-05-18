@@ -29,7 +29,7 @@ RETRY_ATTEMPTS = 3
 RETRY_DELAY = 2
 TYPING_INTERVAL = 4
 RATE_LIMIT_SECONDS = 2
-MAX_PDF_CHARS = 12000  # максимум символов из PDF для отправки в Groq
+MAX_PDF_CHARS = 6000   # максимум символов из PDF для отправки в Groq
 # ================================
 
 logging.basicConfig(
@@ -682,24 +682,26 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # PDF-контекст
+    # PDF-контекст — НЕ добавляем в историю, передаём отдельно каждый раз
     pdf_text = pdf_context.get(user_id, "")
-    full_message = user_message
-    if pdf_text:
-        full_message = f"[СОДЕРЖИМОЕ PDF]:\n{pdf_text}\n\n[ВОПРОС ПОЛЬЗОВАТЕЛЯ]:\n{user_message}"
 
-    # Свежие новости
-    if extra_context:
-        full_message = extra_context + "\n\n" + full_message
-
-    conversation_history[user_id].append({"role": "user", "content": full_message})
+    # В историю пишем только чистый вопрос пользователя
+    conversation_history[user_id].append({"role": "user", "content": user_message})
 
     if len(conversation_history[user_id]) > MAX_HISTORY:
         conversation_history[user_id] = conversation_history[user_id][-MAX_HISTORY:]
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history[user_id]
+
+    # Собираем системный промпт с PDF и новостями
+    system_with_context = SYSTEM_PROMPT
+    if pdf_text:
+        system_with_context += f"\n\n=== ЗАГРУЖЕННЫЙ PDF (используй при ответе) ===\n{pdf_text}\n=== КОНЕЦ PDF ==="
+    if extra_context:
+        system_with_context += f"\n\n{extra_context}"
+
+    messages = [{"role": "system", "content": system_with_context}] + conversation_history[user_id]
 
     last_error = None
 
