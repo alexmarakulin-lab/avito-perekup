@@ -4,7 +4,11 @@ import asyncio
 import time
 import io
 import httpx
-import fitz  # pymupdf
+try:
+    import fitz  # pymupdf
+    FITZ_AVAILABLE = True
+except ImportError:
+    FITZ_AVAILABLE = False
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 from telegram.constants import ChatAction
@@ -633,20 +637,39 @@ async def search_news(query: str) -> str:
 
 # ===== ЧТЕНИЕ PDF =====
 def extract_pdf_text(pdf_bytes: bytes) -> str:
-    """Извлекает текст из PDF с помощью PyMuPDF."""
+    """Извлекает текст из PDF. Использует PyMuPDF если доступен, иначе pypdf."""
+    # Метод 1: PyMuPDF (fitz)
+    if FITZ_AVAILABLE:
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            pages_text = []
+            for page in doc:
+                pages_text.append(page.get_text())
+            doc.close()
+            full_text = "\n".join(pages_text).strip()
+            if len(full_text) > MAX_PDF_CHARS:
+                full_text = full_text[:MAX_PDF_CHARS] + "\n\n[... текст обрезан ...]"
+            return full_text
+        except Exception as e:
+            logger.error(f"fitz ошибка: {e}")
+
+    # Метод 2: pypdf (fallback)
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         pages_text = []
-        for page in doc:
-            pages_text.append(page.get_text())
-        doc.close()
+        for page in reader.pages:
+            pages_text.append(page.extract_text() or "")
         full_text = "\n".join(pages_text).strip()
         if len(full_text) > MAX_PDF_CHARS:
-            full_text = full_text[:MAX_PDF_CHARS] + "\n\n[... текст обрезан, слишком большой PDF ...]"
+            full_text = full_text[:MAX_PDF_CHARS] + "\n\n[... текст обрезан ...]"
         return full_text
+    except ImportError:
+        pass
     except Exception as e:
-        logger.error(f"Ошибка чтения PDF: {e}")
-        return ""
+        logger.error(f"pypdf ошибка: {e}")
+
+    return ""
 
 
 # ===== ЗАПРОС К GROQ =====
