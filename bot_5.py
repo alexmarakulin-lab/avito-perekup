@@ -16,7 +16,12 @@ from telegram.constants import ChatAction
 # ========== НАСТРОЙКИ ==========
 TELEGRAM_TOKEN = "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY"
 GROQ_API_KEY = "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"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",      # основная — самая умная
+    "llama-3.1-70b-versatile",      # резерв 1
+    "mixtral-8x7b-32768",           # резерв 2
+    "gemma2-9b-it",                 # резерв 3 — всегда доступна
+]
 SERPER_API_KEY = ""  # ВСТАВЬ КЛЮЧ с serper.dev (бесплатно 2500 запросов)
 MAX_HISTORY = 20
 MAX_MESSAGE_LENGTH = 4096
@@ -677,13 +682,13 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # Если есть PDF-контекст — добавляем к вопросу
+    # PDF-контекст
     pdf_text = pdf_context.get(user_id, "")
     full_message = user_message
     if pdf_text:
         full_message = f"[СОДЕРЖИМОЕ PDF]:\n{pdf_text}\n\n[ВОПРОС ПОЛЬЗОВАТЕЛЯ]:\n{user_message}"
 
-    # Если есть свежие новости — добавляем
+    # Свежие новости
     if extra_context:
         full_message = extra_context + "\n\n" + full_message
 
@@ -694,36 +699,56 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history[user_id],
-        "max_tokens": 2048,
-        "temperature": 0.4
-    }
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history[user_id]
 
     last_error = None
-    for attempt in range(1, RETRY_ATTEMPTS + 1):
-        try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                answer = data["choices"][0]["message"]["content"]
-            conversation_history[user_id].append({"role": "assistant", "content": answer})
-            logger.info(f"OK: user={user_id}, attempt={attempt}")
-            return answer
 
-        except httpx.HTTPStatusError as e:
-            last_error = e
-            logger.warning(f"HTTP {e.response.status_code} (попытка {attempt}/{RETRY_ATTEMPTS})")
-            if e.response.status_code in (401, 403):
-                raise Exception("неверный_ключ")
-            await asyncio.sleep(RETRY_DELAY * attempt)
+    # Перебираем модели по очереди — если одна недоступна, пробуем следующую
+    for model in GROQ_MODELS:
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 2048,
+                    "temperature": 0.4
+                }
+                async with httpx.AsyncClient(timeout=45) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                    answer = data["choices"][0]["message"]["content"]
 
-        except Exception as e:
-            last_error = e
-            logger.warning(f"Ошибка Groq: {e} (попытка {attempt}/{RETRY_ATTEMPTS})")
-            await asyncio.sleep(RETRY_DELAY)
+                conversation_history[user_id].append({"role": "assistant", "content": answer})
+                if model != GROQ_MODELS[0]:
+                    logger.info(f"OK (резерв {model}): user={user_id}")
+                else:
+                    logger.info(f"OK: user={user_id}")
+                return answer
+
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                logger.warning(f"HTTP {status} модель={model} попытка={attempt}")
+                if status in (401, 403):
+                    raise Exception("неверный_ключ")
+                if status == 429:
+                    # Rate limit — подождать дольше
+                    await asyncio.sleep(RETRY_DELAY * attempt * 2)
+                else:
+                    await asyncio.sleep(RETRY_DELAY * attempt)
+
+            except httpx.TimeoutException:
+                last_error = Exception(f"Timeout модель={model}")
+                logger.warning(f"Таймаут модель={model} попытка={attempt}")
+                await asyncio.sleep(RETRY_DELAY)
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Ошибка модель={model} попытка={attempt}: {e}")
+                await asyncio.sleep(RETRY_DELAY)
+
+        logger.warning(f"Модель {model} недоступна, переключаемся на следующую...")
 
     raise Exception(f"groq_недоступен: {last_error}")
 
