@@ -250,7 +250,10 @@ for b in range(N_BARS):
                 place(hats, hat()*(0.4+0.08*k), t0+3.5*BEAT+k*(BEAT/8))
 
 # ---------------- вокал ----------------
-vx, vsr = sf.read("vocal_src.wav")
+import os
+VOCAL_FILE = "vocal_tuned.wav" if os.path.exists("vocal_tuned.wav") else "vocal_src.wav"
+print("vocal source:", VOCAL_FILE)
+vx, vsr = sf.read(VOCAL_FILE)
 if vx.ndim>1: vx=vx.mean(axis=1)
 vx=vx.astype(np.float64)
 assert vsr==SR

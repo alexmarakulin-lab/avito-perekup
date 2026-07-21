@@ -4,3 +4,7 @@
 *.mp3
 *.flac
 *.ogg
+
+# python
+__pycache__/
+*.pyc
