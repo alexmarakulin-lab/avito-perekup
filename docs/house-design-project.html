@@ -242,6 +242,13 @@ tr.total td { font-weight: 700; background: var(--surface-2); border-top: 1px so
 .risk h4 { margin: 0; }
 .risk p { margin: 0; font-size: var(--step--1); color: var(--ink-2); max-width: none; grid-column: 2; }
 
+/* ============ ВИЗУАЛИЗАЦИЯ ============ */
+figure.plate.render { border-color: #0D1418; background: #0B1116; }
+.render-body { line-height: 0; }
+.render-body svg { display: block; width: 100%; height: auto; aspect-ratio: 1200 / 620; min-width: 0; }
+figure.plate.render figcaption { border-top-color: #1C262B; color: #8FA0A8; background: #0B1116; }
+figure.plate.render figcaption b { color: #C7D3D8; }
+
 /* ============ ПАЛИТРА И ИНТЕРЬЕРЫ ============ */
 .palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); max-width: none; }
 .pal { background: var(--surface); display: flex; flex-direction: column; }
@@ -412,9 +419,8 @@ footer.foot p { max-width: 70ch; }
           <text x="70" y="335" class="area">комната отдыха на 20 гостей</text>
           <!-- контур погреба -->
           <rect x="62" y="292" width="55" height="60" class="dash"/>
-          <text x="66" y="356" class="tag">ПОГРЕБ 26,4 м²</text>
-          <text x="198" y="330" class="area">погреб — под западной,</text>
-          <text x="198" y="340" class="area">холодной частью бани</text>
+          <text x="66" y="350" class="tag">ПОГРЕБ</text>
+          <text x="196" y="372" class="area">погреб 26,4 м² — под западной, холодной частью бани</text>
 
           <!-- барбекю -->
           <rect x="205" y="240" width="80" height="60" class="fill-wood" stroke="var(--ink-2)" stroke-width="1.2"/>
@@ -1195,94 +1201,197 @@ footer.foot p { max-width: 70ch; }
       <p>Логика простая и держится на всём объекте: <strong>три материала снаружи</strong> — светлая тёплая штукатурка, медовое дерево, графитовый металл. Внутри — одна тёплая нейтральная база (стены и камень), дерево как второй тон, один тёмный акцент (графит) и один металл (латунь браш). Единственное место, где палитра сознательно ломается, — погреб: там терракота, известь и винный тон, и это правильно, потому что вниз спускаешься как в другое место.</p>
     </div>
 
-    <figure class="plate">
-      <div class="plate-body">
-        <svg class="dwg" viewBox="0 0 760 366" role="img" aria-labelledby="fc-t">
-          <title id="fc-t">Цветовая раскладка фасадов дома и бани со стороны бассейна</title>
+    <figure class="plate render">
+      <div class="render-body">
+        <svg viewBox="0 0 1200 620" role="img" aria-labelledby="vz-t" preserveAspectRatio="xMidYMid slice">
+          <title id="vz-t">Визуализация главного фасада: белая штукатурка, графитовая вставка, деревянная подшивка свесов</title>
           <defs>
-            <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#5A98A3"/>
-              <stop offset="100%" stop-color="#2F6B7A"/>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#8FB4CF"/>
+              <stop offset="55%" stop-color="#BFD6E4"/>
+              <stop offset="100%" stop-color="#E7EEF1"/>
             </linearGradient>
-            <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#F0D6A2"/>
-              <stop offset="100%" stop-color="#E0BC7C"/>
+            <linearGradient id="wallW" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#FBFAF7"/>
+              <stop offset="70%" stop-color="#EFEDE7"/>
+              <stop offset="100%" stop-color="#DAD8D0"/>
             </linearGradient>
+            <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3B4145"/>
+              <stop offset="100%" stop-color="#262B2E"/>
+            </linearGradient>
+            <linearGradient id="glass" x1="0.1" y1="0" x2="0.9" y2="1">
+              <stop offset="0%" stop-color="#C8D9E1"/>
+              <stop offset="42%" stop-color="#8FA8B4"/>
+              <stop offset="60%" stop-color="#6E8894"/>
+              <stop offset="100%" stop-color="#9FB6C0"/>
+            </linearGradient>
+            <linearGradient id="lawn" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#7C9A55"/>
+              <stop offset="100%" stop-color="#5D7A3E"/>
+            </linearGradient>
+            <linearGradient id="pave" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#DCDAD3"/>
+              <stop offset="100%" stop-color="#C4C2BA"/>
+            </linearGradient>
+            <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#B27C42"/>
+              <stop offset="100%" stop-color="#8A5A30"/>
+            </linearGradient>
+            <linearGradient id="waterD" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#4E7C86"/>
+              <stop offset="100%" stop-color="#22434C"/>
+            </linearGradient>
+            <filter id="blurS" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="10"/></filter>
+            <filter id="blurXS" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4"/></filter>
           </defs>
 
-          <text x="24" y="18" class="tag">ФАСАДЫ СО СТОРОНЫ БАССЕЙНА · ВЕЧЕРНИЙ СЦЕНАРИЙ</text>
+          <!-- небо -->
+          <rect width="1200" height="500" fill="url(#sky)"/>
+          <g fill="#FFFFFF" opacity="0.75" filter="url(#blurS)">
+            <ellipse cx="250" cy="120" rx="130" ry="34"/>
+            <ellipse cx="330" cy="104" rx="86" ry="28"/>
+            <ellipse cx="930" cy="150" rx="150" ry="30"/>
+            <ellipse cx="1030" cy="132" rx="90" ry="24"/>
+          </g>
 
-          <!-- земля -->
-          <line x1="20" y1="290" x2="740" y2="290" class="axis"/>
+          <!-- дальние деревья -->
+          <g filter="url(#blurXS)">
+            <ellipse cx="90" cy="360" rx="120" ry="96" fill="#54704A"/>
+            <ellipse cx="180" cy="392" rx="90" ry="74" fill="#4A6642"/>
+            <ellipse cx="1080" cy="352" rx="140" ry="104" fill="#54704A"/>
+            <ellipse cx="990" cy="396" rx="86" ry="70" fill="#47623F"/>
+            <ellipse cx="880" cy="410" rx="70" ry="56" fill="#3F5939"/>
+          </g>
 
           <!-- ДОМ -->
-          <polygon points="60,290 60,160 180,78 300,160 300,290" fill="#D9D4C8"/>
-          <polygon points="60,290 60,282 300,282 300,290" fill="#9C958A"/>
-          <line x1="46" y1="170" x2="180" y2="70" stroke="#3A3F42" stroke-width="9" stroke-linecap="round"/>
-          <line x1="180" y1="70" x2="314" y2="170" stroke="#3A3F42" stroke-width="9" stroke-linecap="round"/>
-          <!-- панорамное остекление -->
-          <rect x="84" y="192" width="88" height="90" fill="url(#glass)" stroke="#2B2E30" stroke-width="3"/>
-          <line x1="128" y1="192" x2="128" y2="282" stroke="#2B2E30" stroke-width="2"/>
-          <rect x="188" y="192" width="88" height="90" fill="url(#glass)" stroke="#2B2E30" stroke-width="3"/>
-          <line x1="232" y1="192" x2="232" y2="282" stroke="#2B2E30" stroke-width="2"/>
-          <!-- окно во фронтоне -->
-          <rect x="156" y="118" width="48" height="34" fill="url(#glass)" stroke="#2B2E30" stroke-width="2.5"/>
-          <!-- терраса -->
-          <rect x="52" y="282" width="256" height="9" fill="#A87A4C"/>
-          <text x="60" y="306" class="area">ДОМ · штукатурка + фальц</text>
+          <g>
+            <!-- тень на землю -->
+            <ellipse cx="470" cy="492" rx="420" ry="26" fill="#2E3A26" opacity="0.35" filter="url(#blurS)"/>
 
-          <!-- БАНЯ -->
-          <polygon points="480,290 480,190 600,120 720,190 720,290" fill="#9A6A3C"/>
-          <g stroke="#89592F" stroke-width="1.2" opacity="0.85">
-            <line x1="496" y1="290" x2="496" y2="203"/><line x1="512" y1="290" x2="512" y2="194"/>
-            <line x1="528" y1="290" x2="528" y2="185"/><line x1="544" y1="290" x2="544" y2="176"/>
-            <line x1="560" y1="290" x2="560" y2="167"/><line x1="576" y1="290" x2="576" y2="158"/>
-            <line x1="592" y1="290" x2="592" y2="149"/><line x1="608" y1="290" x2="608" y2="145"/>
-            <line x1="624" y1="290" x2="624" y2="154"/><line x1="640" y1="290" x2="640" y2="163"/>
-            <line x1="656" y1="290" x2="656" y2="172"/><line x1="672" y1="290" x2="672" y2="181"/>
-            <line x1="688" y1="290" x2="688" y2="190"/><line x1="704" y1="290" x2="704" y2="199"/>
+            <!-- основной белый объём -->
+            <rect x="150" y="262" width="640" height="222" fill="url(#wallW)"/>
+            <!-- боковой белый ризалит -->
+            <rect x="150" y="286" width="120" height="198" fill="#F7F6F2"/>
+            <rect x="700" y="286" width="90" height="198" fill="#F7F6F2"/>
+
+            <!-- графитовая вставка второго уровня -->
+            <rect x="270" y="262" width="430" height="74" fill="url(#panel)"/>
+            <g stroke="#1E2326" stroke-width="1" opacity="0.55">
+              <line x1="330" y1="262" x2="330" y2="336"/><line x1="400" y1="262" x2="400" y2="336"/>
+              <line x1="470" y1="262" x2="470" y2="336"/><line x1="540" y1="262" x2="540" y2="336"/>
+              <line x1="610" y1="262" x2="610" y2="336"/>
+            </g>
+            <!-- ленточное окно во вставке -->
+            <rect x="330" y="282" width="300" height="36" fill="url(#glass)"/>
+            <rect x="330" y="282" width="300" height="36" fill="none" stroke="#1B1F22" stroke-width="3"/>
+            <line x1="480" y1="282" x2="480" y2="318" stroke="#1B1F22" stroke-width="2.5"/>
+
+            <!-- кровля: белая фасция + деревянная подшивка -->
+            <line x1="96" y1="268" x2="470" y2="196" stroke="#F7F6F2" stroke-width="17" stroke-linecap="round"/>
+            <line x1="470" y1="196" x2="844" y2="268" stroke="#F7F6F2" stroke-width="17" stroke-linecap="round"/>
+            <line x1="102" y1="280" x2="470" y2="210" stroke="url(#wood)" stroke-width="9" stroke-linecap="round"/>
+            <line x1="470" y1="210" x2="838" y2="280" stroke="url(#wood)" stroke-width="9" stroke-linecap="round"/>
+            <line x1="108" y1="289" x2="470" y2="220" stroke="#1B1F22" stroke-width="4" opacity="0.16"/>
+            <line x1="470" y1="220" x2="832" y2="289" stroke="#1B1F22" stroke-width="4" opacity="0.16"/>
+
+            <!-- крытая терраса: тёмная ниша -->
+            <rect x="292" y="336" width="386" height="148" fill="#2C3134"/>
+            <rect x="292" y="336" width="386" height="14" fill="url(#wood)"/>
+            <!-- витражи террасы -->
+            <rect x="308" y="356" width="168" height="120" fill="url(#glass)"/>
+            <rect x="494" y="356" width="168" height="120" fill="url(#glass)"/>
+            <g stroke="#191D20" stroke-width="3.4" fill="none">
+              <rect x="308" y="356" width="168" height="120"/><rect x="494" y="356" width="168" height="120"/>
+              <line x1="392" y1="356" x2="392" y2="476"/><line x1="578" y1="356" x2="578" y2="476"/>
+            </g>
+            <!-- интерьер за стеклом -->
+            <g opacity="0.85">
+              <rect x="318" y="430" width="64" height="42" fill="#8A5A34"/>
+              <rect x="404" y="440" width="62" height="32" fill="#D8CFC0"/>
+              <rect x="506" y="418" width="146" height="12" fill="#3A3F42"/>
+              <rect x="596" y="430" width="56" height="42" fill="#B99A72"/>
+            </g>
+            <!-- блик по стеклу -->
+            <g opacity="0.5">
+              <polygon points="318,476 372,356 404,356 344,476" fill="#FFFFFF" opacity="0.35"/>
+              <polygon points="506,476 560,356 584,356 528,476" fill="#FFFFFF" opacity="0.3"/>
+            </g>
+
+            <!-- боковое окно в белом объёме -->
+            <rect x="176" y="360" width="86" height="116" fill="url(#glass)"/>
+            <rect x="176" y="360" width="86" height="116" fill="none" stroke="#191D20" stroke-width="3.4"/>
+            <line x1="219" y1="360" x2="219" y2="476" stroke="#191D20" stroke-width="2.4"/>
+            <rect x="716" y="360" width="60" height="116" fill="url(#glass)"/>
+            <rect x="716" y="360" width="60" height="116" fill="none" stroke="#191D20" stroke-width="3.4"/>
+
+            <!-- цоколь и терраса -->
+            <rect x="150" y="478" width="640" height="12" fill="#CFCCC4"/>
+            <rect x="292" y="478" width="386" height="12" fill="#9C6A38"/>
           </g>
-          <line x1="468" y1="199" x2="600" y2="112" stroke="#3A3F42" stroke-width="8" stroke-linecap="round"/>
-          <line x1="600" y1="112" x2="732" y2="199" stroke="#3A3F42" stroke-width="8" stroke-linecap="round"/>
-          <rect x="504" y="214" width="152" height="68" fill="url(#glass)" stroke="#2B2E30" stroke-width="3"/>
-          <line x1="555" y1="214" x2="555" y2="282" stroke="#2B2E30" stroke-width="2"/>
-          <line x1="606" y1="214" x2="606" y2="282" stroke="#2B2E30" stroke-width="2"/>
-          <rect x="474" y="282" width="252" height="9" fill="#A87A4C"/>
-          <text x="492" y="306" class="area">БАНЯ · термоясень по вентфасаду</text>
+
+          <!-- БАНЯ справа, тот же язык -->
+          <g>
+            <ellipse cx="1010" cy="494" rx="200" ry="18" fill="#2E3A26" opacity="0.32" filter="url(#blurS)"/>
+            <rect x="880" y="374" width="260" height="112" fill="url(#wallW)"/>
+            <rect x="928" y="374" width="170" height="44" fill="url(#panel)"/>
+            <line x1="856" y1="378" x2="1010" y2="336" stroke="#F7F6F2" stroke-width="13" stroke-linecap="round"/>
+            <line x1="1010" y1="336" x2="1164" y2="378" stroke="#F7F6F2" stroke-width="13" stroke-linecap="round"/>
+            <line x1="860" y1="388" x2="1010" y2="347" stroke="url(#wood)" stroke-width="7" stroke-linecap="round"/>
+            <line x1="1010" y1="347" x2="1160" y2="388" stroke="url(#wood)" stroke-width="7" stroke-linecap="round"/>
+            <rect x="912" y="416" width="200" height="64" fill="url(#glass)"/>
+            <rect x="912" y="416" width="200" height="64" fill="none" stroke="#191D20" stroke-width="3"/>
+            <line x1="1012" y1="416" x2="1012" y2="480" stroke="#191D20" stroke-width="2.4"/>
+            <rect x="880" y="480" width="260" height="10" fill="#9C6A38"/>
+          </g>
+
+          <!-- газон и мощение -->
+          <rect y="490" width="1200" height="130" fill="url(#lawn)"/>
+          <polygon points="470,492 590,492 700,620 350,620" fill="url(#pave)"/>
+          <g stroke="#AFACA3" stroke-width="2">
+            <line x1="452" y1="524" x2="618" y2="524"/>
+            <line x1="424" y1="562" x2="654" y2="562"/>
+            <line x1="392" y1="602" x2="690" y2="602"/>
+            <line x1="530" y1="492" x2="530" y2="620"/>
+          </g>
 
           <!-- бассейн -->
-          <rect x="210" y="296" width="270" height="36" rx="2" fill="url(#water)"/>
-          <rect x="204" y="290" width="282" height="7" fill="#A87A4C"/>
-          <g stroke="#FFFFFF" stroke-width="1.4" opacity="0.32">
-            <line x1="228" y1="308" x2="300" y2="308"/><line x1="330" y1="318" x2="420" y2="318"/>
-            <line x1="250" y1="325" x2="316" y2="325"/>
-          </g>
-          <text x="212" y="345" class="area">бассейн · графитовый лайнер, вода читается тёмно-бирюзовой</text>
-
-          <!-- зелень -->
-          <g fill="#6E7A4E" opacity="0.9">
-            <circle cx="34" cy="272" r="17"/><circle cx="30" cy="288" r="12"/>
-            <circle cx="742" cy="266" r="19"/><circle cx="736" cy="286" r="13"/>
-          </g>
-
-          <!-- легенда -->
           <g>
-            <rect x="504" y="322" width="12" height="12" fill="#D9D4C8" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="520" y="332" class="dim">D9D4C8</text>
-            <rect x="576" y="322" width="12" height="12" fill="#9A6A3C" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="592" y="332" class="dim">9A6A3C</text>
-            <rect x="648" y="322" width="12" height="12" fill="#3A3F42" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="664" y="332" class="dim">3A3F42</text>
-            <rect x="504" y="342" width="12" height="12" fill="#E8C88A" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="520" y="352" class="dim">E8C88A</text>
-            <rect x="576" y="342" width="12" height="12" fill="#2F6B7A" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="592" y="352" class="dim">2F6B7A</text>
-            <rect x="648" y="342" width="12" height="12" fill="#A87A4C" stroke="var(--ink-3)" stroke-width="0.5"/>
-            <text x="664" y="352" class="dim">A87A4C</text>
+            <polygon points="700,506 1010,506 1080,556 690,556" fill="url(#waterD)"/>
+            <polygon points="700,506 1010,506 1014,512 698,512" fill="#FFFFFF" opacity="0.28"/>
+            <g stroke="#FFFFFF" opacity="0.22">
+              <line x1="730" y1="524" x2="960" y2="524" stroke-width="2"/>
+              <line x1="716" y1="540" x2="1000" y2="540" stroke-width="2.5"/>
+            </g>
+            <polygon points="686,500 1024,500 1096,562 676,562" fill="none" stroke="#9C6A38" stroke-width="7"/>
+          </g>
+
+          <!-- стриженые кустарники и злаки -->
+          <g fill="#4E6B3E">
+            <rect x="150" y="470" width="130" height="26" rx="12"/>
+            <rect x="676" y="470" width="120" height="26" rx="12"/>
+            <rect x="140" y="500" width="190" height="22" rx="11"/>
+            <rect x="820" y="486" width="150" height="22" rx="11"/>
+          </g>
+          <g fill="#6D8A4A" opacity="0.95">
+            <ellipse cx="330" cy="504" rx="42" ry="16"/>
+            <ellipse cx="640" cy="504" rx="40" ry="15"/>
+          </g>
+          <g stroke="#8E9F5A" stroke-width="2" fill="none" opacity="0.9">
+            <path d="M300,516 C308,494 316,486 330,478"/><path d="M318,518 C322,496 332,486 348,480"/>
+            <path d="M348,516 C344,496 336,486 322,476"/>
+            <path d="M614,516 C622,496 632,486 648,478"/><path d="M646,516 C642,496 634,486 620,478"/>
+          </g>
+
+          <!-- ветка дерева в кадре -->
+          <g fill="#33502F" opacity="0.95">
+            <ellipse cx="40" cy="40" rx="150" ry="80"/>
+            <ellipse cx="150" cy="26" rx="90" ry="46"/>
+            <ellipse cx="0" cy="140" rx="70" ry="60"/>
           </g>
         </svg>
       </div>
-      <figcaption><span><b>Лист АР-04</b> · Цветовая раскладка фасадов</span><span>Вечером тёплый свет в панорамах — главный акцент композиции</span></figcaption>
+      <figcaption><span><b>Лист АР-04</b> · Главный фасад со стороны сада</span><span>Белая штукатурка · графитовая вставка · деревянная подшивка свесов</span></figcaption>
     </figure>
 
     <div class="prose">
