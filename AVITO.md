@@ -31,14 +31,22 @@
 например «Авито Краснодар») → username, обязательно заканчивается на `bot`.
 BotFather выдаст токен вида `7123456789:AAH...` — это и есть `AVITO_BOT_TOKEN`.
 
-**2. Заполнить `.env`** (на сервере, см. раздел «Где запускать»):
+**2. Развернуть на сервере.** Проще всего скриптом — он поставит Docker,
+спросит токен, создаст `.env` и поднимет бота:
+
+```bash
+bash setup.sh
+```
+
+Вручную то же самое:
 
 ```bash
 cp .env.example .env
-nano .env          # вставь AVITO_BOT_TOKEN
+nano .env                # вставь AVITO_BOT_TOKEN
+docker compose up -d
 ```
 
-**3. Поднять:** `docker compose up -d`
+**3. Убедиться, что поднялось:** `docker compose logs -f`
 
 **4. Закрыть от чужих.** Напиши боту `/myid`, полученное число впиши в
 `AVITO_OWNER_ID` в `.env` и перезапусти: `docker compose up -d`.
@@ -118,8 +126,7 @@ VDSina, RuVDS. Ресурсов нужно немного: 1 vCPU и 1 ГБ па
 ```bash
 apt update && apt install -y docker.io docker-compose-plugin git
 git clone <репозиторий> && cd slabotochny-bot
-cp .env.example .env && nano .env      # вставь AVITO_BOT_TOKEN
-docker compose up -d
+bash setup.sh                          # спросит токен и всё сделает сам
 docker compose logs -f                 # посмотреть, что поднялось
 ```
 

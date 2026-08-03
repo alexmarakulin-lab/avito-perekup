@@ -25,6 +25,15 @@ Telegram-бот под перепродажу б/у техники и инстр
 
 ## Быстрый старт
 
+На чистом сервере одной командой — скрипт поставит Docker, спросит токен
+и запустит бота:
+
+```bash
+bash setup.sh
+```
+
+Вручную, если хочется контроля:
+
 ```bash
 cp .env.example .env && nano .env     # вставь AVITO_BOT_TOKEN от @BotFather
 docker compose up -d
