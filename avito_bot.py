@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Отдельный бот-перекуп: только монитор Авито, без эксперта по слаботочке.
+Бот-перекуп: монитор Авито плюс консультант по сделкам.
 
-Живёт на своём токене и в своей базе, запускается независимо от bot_5.py.
 Токен обязателен в переменной AVITO_BOT_TOKEN - зашитых ключей здесь нет.
 """
+import asyncio
 import logging
 import os
 import sys
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
 import avito_monitor
+import resale_expert
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,15 +71,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await guard(update):
         return
     avito_monitor.init_db()
+    expert_line = (
+        "\n\n💬 <b>И просто пиши мне вопросы.</b> Подскажу, сколько реально стоит лот, "
+        "что проверить перед покупкой, с какой суммы торговаться и что останется "
+        "на руки. Считаю по цифрам из собственной базы, а не наугад."
+        if resale_expert.available() else
+        "\n\n<i>Консультант выключен: не задан GROQ_API_KEY.</i>"
+    )
     await update.message.reply_text(
-        "💰 <b>Монитор Авито — Краснодар</b>\n\n"
+        "💰 <b>Перекуп — Краснодар</b>\n\n"
         f"Слежу за новыми лотами до {avito_monitor.MAX_PRICE:,} ₽".replace(",", " ") + " "
         "по четырём категориям: инструмент, садовая техника, кондиционеры, "
         "мебель и бытовая техника.\n\n"
         "Первые дни присылаю всё, что укладывается в бюджет — так копится "
         "статистика цен. Дальше остаются только лоты дешевле медианы рынка.\n\n"
         "Начни с «🔍 Проверить Авито» — убедимся, что выдача читается.\n"
-        "Потом «🟢 Включить».",
+        "Потом «🟢 Включить»." + expert_line,
         parse_mode="HTML",
         reply_markup=keyboard(),
     )
@@ -99,12 +108,54 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == BTN_TEST:
         context.args = []
         await avito_monitor.cmd_avito_test(update, context)
-    else:
-        await update.message.reply_text(
-            "Я только слежу за Авито — свободный текст не понимаю.\n"
-            "Жми кнопки внизу или /help.",
-            reply_markup=keyboard(),
-        )
+    elif text:
+        await ask_expert(update, context, text)
+
+
+async def ask_expert(update: Update, context: ContextTypes.DEFAULT_TYPE, question: str):
+    """Свободный текст уходит консультанту по перекупу."""
+    user_id = update.effective_user.id
+    if resale_expert.rate_limited(user_id):
+        await update.message.reply_text("⏳ Не так быстро, дай ответить на предыдущий.")
+        return
+
+    stop = asyncio.Event()
+
+    async def typing():
+        while not stop.is_set():
+            try:
+                await context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action=ChatAction.TYPING
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+
+    task = asyncio.ensure_future(typing())
+    try:
+        answer = await resale_expert.ask(user_id, question)
+    finally:
+        stop.set()
+        task.cancel()
+
+    for chunk in split_message(answer):
+        await update.message.reply_text(chunk, reply_markup=keyboard())
+
+
+def split_message(text: str, limit: int = 4000) -> list:
+    """Телеграм не принимает сообщения длиннее 4096 символов."""
+    if len(text) <= limit:
+        return [text]
+    parts, current = [], ""
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > limit:
+            parts.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        parts.append(current)
+    return parts
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,14 +163,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "📖 <b>Что умею</b>\n\n"
-        "Обхожу категории по сортировке «сначала новые», запоминаю всё увиденное "
-        "и присылаю только то, чего раньше не было и что дешевле рынка.\n\n"
+        "<b>1. Слежу за Авито.</b> Обхожу категории по сортировке «сначала новые», "
+        "запоминаю всё увиденное и присылаю только то, чего раньше не было "
+        "и что дешевле медианы рынка.\n\n"
+        "<b>2. Консультирую по сделке.</b> Просто напиши вопрос: «перфоратор бош "
+        "за 3500, брать?», «что смотреть в б/у стиралке», «как сбить цену на диван». "
+        "Где по теме есть накопленная статистика — считаю по ней.\n\n"
         "<b>Команды</b>\n"
         "/avito — статус и настройки\n"
         "/avito_on — включить слежку\n"
         "/avito_off — выключить\n"
         "/avito_report — сводка по рынку за сутки\n"
         "/avito_test [запрос] — проверить, читается ли выдача Авито\n"
+        "/reset — забыть текущий диалог\n"
         "/myid — узнать свой Telegram ID\n\n"
         "Отчёт приходит сам в "
         f"{avito_monitor.DIGEST_HOUR}:00. Категории и ключевые слова правятся "
@@ -127,6 +183,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=keyboard(),
     )
+
+
+async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    resale_expert.reset(update.effective_user.id)
+    await update.message.reply_text("🔄 Диалог забыт. База лотов и цен не тронута.",
+                                    reply_markup=keyboard())
 
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -150,6 +212,7 @@ def build_app():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("reset", protect(reset_cmd)))
     app.add_handler(CommandHandler("avito", protect(avito_monitor.cmd_avito)))
     app.add_handler(CommandHandler("avito_on", protect(avito_monitor.cmd_avito_on)))
     app.add_handler(CommandHandler("avito_off", protect(avito_monitor.cmd_avito_off)))

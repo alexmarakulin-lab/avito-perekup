@@ -90,10 +90,21 @@ async def buttons():
     check("состояние после «Выключить» — монитор остановлен",
           avito_monitor.is_enabled() is False)
 
-    unknown = FakeUpdate("привет как дела", 777)
+    # Свободный текст уходит консультанту. Ключа Groq в тестах нет,
+    # значит должен прийти внятный отказ, а не молчание или трейсбек.
+    import resale_expert
+    resale_expert._last_call.clear()
+    unknown = FakeUpdate("перфоратор за 3500, брать?", 777)
     await avito_bot.on_button(unknown, FakeContext())
-    check("свободный текст: бот честно отказывается",
-          "не понимаю" in " ".join(unknown.message.replies))
+    joined = " ".join(unknown.message.replies)
+    check("свободный текст: уходит консультанту", bool(unknown.message.replies), joined)
+    check("свободный текст: без ключа честно сообщает", "GROQ_API_KEY" in joined, joined[:90])
+
+    unknown2 = FakeUpdate("а стиралка?", 777)
+    await avito_bot.on_button(unknown2, FakeContext())
+    check("свободный текст: частые вопросы притормаживаются",
+          "Не так быстро" in " ".join(unknown2.message.replies),
+          unknown2.message.replies)
 
     stranger = FakeUpdate(avito_bot.BTN_REPORT, 555)
     await avito_bot.on_button(stranger, FakeContext())
@@ -128,7 +139,7 @@ if PTB:
     commands = sorted(sorted(h.commands)[0] for h in handlers if hasattr(h, "commands"))
     check("сборка: команды на месте",
           commands == ["avito", "avito_off", "avito_on", "avito_report", "avito_test",
-                       "help", "myid", "start"], commands)
+                       "help", "myid", "reset", "start"], commands)
     check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 1, len(handlers))
     check("сборка: post_init назначен", callable(app.post_init))
 
