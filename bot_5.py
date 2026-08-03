@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import asyncio
+import os
 import time
 import io
 import httpx
@@ -12,10 +13,18 @@ except ImportError:
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 from telegram.constants import ChatAction
+try:
+    import avito_monitor
+    AVITO_AVAILABLE = True
+except ImportError:
+    AVITO_AVAILABLE = False
 
 # ========== НАСТРОЙКИ ==========
-TELEGRAM_TOKEN = "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY"
-GROQ_API_KEY = "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"
+# Ключи берутся из окружения. Значения ниже - запасной вариант, чтобы
+# ничего не сломалось на старом запуске; они утекли в историю git,
+# поэтому их надо перевыпустить и оставить только переменные окружения.
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
 
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",  # основная - умная, качественные ответы
@@ -513,6 +522,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Рассчитай АКБ: ток 0.5А, резерв 24 часа\n"
         "- Рецепт IPA на 25 литров, 60 IBU\n"
         "- Последние новости пожарная безопасность\n\n"
+        "💰 Монитор Авито (Краснодар, перекуп):\n"
+        "/avito - статус и настройки\n"
+        "/avito_on - включить слежку за новыми лотами\n"
+        "/avito_report - сводка по рынку за сутки\n\n"
         "/reset - очистить историю и PDF",
         reply_markup=get_main_keyboard()
     )
@@ -646,5 +659,9 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
+    if AVITO_AVAILABLE:
+        avito_monitor.register(app)
+    else:
+        logger.warning("Монитор Авито не подключён: модуль не найден")
     logger.info("Бот запущен!")
     app.run_polling(drop_pending_updates=True, allowed_updates=["message"])
