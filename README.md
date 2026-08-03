@@ -1,11 +1,20 @@
 # slabotochny-bot
 
-Telegram-бот: эксперт по слаботочным системам, пивоварению и дистилляции
-плюс монитор Авито для перекупа по Краснодару.
+Два независимых Telegram-бота из одного образа.
 
-- `bot_5.py` — сам бот (ответы через Groq, разбор PDF, поиск новостей)
-- `avito_monitor.py` — монитор Авито: следит за новыми лотами, копит историю
-  цен, шлёт находки дешевле рынка. Описание и развёртывание — [AVITO.md](AVITO.md)
-- `test_avito_monitor.py` — оффлайн-проверка логики монитора, сеть не нужна
+| Файл | Что это |
+|---|---|
+| `avito_bot.py` | **Бот-перекуп**: следит за новыми лотами на Авито в Краснодаре, копит историю цен, шлёт находки дешевле рынка. Развёртывание — [AVITO.md](AVITO.md) |
+| `bot_5.py` | Бот-эксперт по слаботочке, пивоварению и дистилляции (ответы через Groq, разбор PDF, новости) |
+| `avito_monitor.py` | Общий модуль монитора: запросы к Авито, разбор выдачи, база, статистика |
+| `test_avito_monitor.py`, `test_avito_bot.py` | Оффлайн-проверки, сеть не нужна |
 
-Запуск: `docker build -t slabotochny-bot . && docker run -d --restart unless-stopped -v /opt/bot-data:/data -e TELEGRAM_TOKEN=... -e GROQ_API_KEY=... slabotochny-bot`
+## Быстрый старт
+
+```bash
+cp .env.example .env && nano .env     # вставь AVITO_BOT_TOKEN от @BotFather
+docker compose up -d avito            # бот-перекуп
+docker compose up -d expert           # бот-эксперт, если нужен
+```
+
+Подробности, настройки и порядок первого запуска — в [AVITO.md](AVITO.md).

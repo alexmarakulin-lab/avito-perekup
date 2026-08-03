@@ -1,0 +1,31 @@
+# Два независимых бота из одного образа.
+# Падение одного не трогает другой - у них разные процессы и разные токены.
+services:
+  avito:
+    build: .
+    image: slabotochny-bot
+    container_name: avito-bot
+    restart: unless-stopped
+    command: python3 avito_bot.py
+    environment:
+      AVITO_BOT_TOKEN: ${AVITO_BOT_TOKEN:?задай токен в .env}
+      AVITO_OWNER_ID: ${AVITO_OWNER_ID:-}
+      AVITO_DB: /data/avito.db
+      AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
+      AVITO_REGION: ${AVITO_REGION:-krasnodar}
+      AVITO_PROXY: ${AVITO_PROXY:-}
+      TZ: Europe/Moscow
+    volumes:
+      - ./data:/data
+
+  # Старый бот по слаботочке. Не нужен - закомментируй или удали сервис.
+  expert:
+    build: .
+    image: slabotochny-bot
+    container_name: slabotochny-bot
+    restart: unless-stopped
+    command: python3 bot_5.py
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?задай токен в .env}
+      GROQ_API_KEY: ${GROQ_API_KEY:?задай ключ в .env}
+      TZ: Europe/Moscow

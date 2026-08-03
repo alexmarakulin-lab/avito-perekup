@@ -522,10 +522,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Рассчитай АКБ: ток 0.5А, резерв 24 часа\n"
         "- Рецепт IPA на 25 литров, 60 IBU\n"
         "- Последние новости пожарная безопасность\n\n"
-        "💰 Монитор Авито (Краснодар, перекуп):\n"
-        "/avito - статус и настройки\n"
-        "/avito_on - включить слежку за новыми лотами\n"
-        "/avito_report - сводка по рынку за сутки\n\n"
         "/reset - очистить историю и PDF",
         reply_markup=get_main_keyboard()
     )
@@ -659,9 +655,11 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
-    if AVITO_AVAILABLE:
+    # Монитор Авито живёт в отдельном боте (avito_bot.py). Здесь он выключен:
+    # два запущенных монитора удвоят частоту запросов и словят блокировку.
+    # Включается осознанно через AVITO_IN_EXPERT_BOT=1, если отдельный бот не нужен.
+    if AVITO_AVAILABLE and os.getenv("AVITO_IN_EXPERT_BOT") == "1":
         avito_monitor.register(app)
-    else:
-        logger.warning("Монитор Авито не подключён: модуль не найден")
+        logger.info("Монитор Авито подключён к боту-эксперту")
     logger.info("Бот запущен!")
     app.run_polling(drop_pending_updates=True, allowed_updates=["message"])
