@@ -93,11 +93,17 @@ else
     CRED=""
 fi
 
+# Бьём в настоящий метод Bot API с заведомо негодным токеном: Telegram
+# отвечает на него коротким JSON с "ok":false. Корень api.telegram.org
+# для проверки не годится - он отдаёт HTML-страницу, и по ней не отличить
+# успешный проход от страницы-заглушки провайдера.
+TEST_URL="https://api.telegram.org/bot0:proxycheck/getMe"
+
 WORKING=""
 for scheme in socks5h socks5 http; do
     URL="${scheme}://${CRED}${HOST}:${PORT}"
     printf "    пробую %-8s ... " "$scheme"
-    OUT="$(curl -sS --max-time 25 --proxy "$URL" https://api.telegram.org/ 2>&1)"
+    OUT="$(curl -sS --max-time 25 --proxy "$URL" "$TEST_URL" 2>&1)"
     case "$OUT" in
         *'"ok"'*)
             echo "${GREEN}работает${OFF}"
@@ -132,6 +138,26 @@ fi
 
 echo
 say "${BOLD}Прокси работает.${OFF} Способ: ${WORKING%%:*}"
+
+# Заодно проверяем настоящий токен: убедимся, что он жив и принадлежит
+# тому боту, которому ты пишешь в Telegram.
+if [ -f .env ]; then
+    TOKEN="$(grep '^AVITO_BOT_TOKEN=' .env | cut -d= -f2-)"
+    if [ -n "${TOKEN:-}" ]; then
+        ME="$(curl -sS --max-time 25 --proxy "$WORKING" \
+              "https://api.telegram.org/bot${TOKEN}/getMe" 2>&1)"
+        case "$ME" in
+            *'"username"'*)
+                NAME="$(printf '%s' "$ME" | sed -n 's/.*"username":"\([^"]*\)".*/\1/p')"
+                say "Токен рабочий, бот: @${NAME}"
+                ;;
+            *'"ok":false'*)
+                warn "Прокси работает, но Telegram не принимает токен из .env."
+                warn "Похоже, токен отозван - возьми свежий у @BotFather."
+                ;;
+        esac
+    fi
+fi
 
 # ---------- 5. Записать в .env ----------
 [ -f .env ] || die ".env не найден, сначала пройди установку через setup.sh"
