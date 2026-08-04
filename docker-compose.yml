@@ -8,6 +8,10 @@ services:
       AVITO_BOT_TOKEN: ${AVITO_BOT_TOKEN:?задай токен в .env}
       AVITO_OWNER_ID: ${AVITO_OWNER_ID:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Обход блокировки Telegram. На Авито не влияет - он читается напрямую.
+      TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
+      TELEGRAM_BASE_URL: ${TELEGRAM_BASE_URL:-}
+      TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-30}
       AVITO_DB: /data/avito.db
       AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
       AVITO_REGION: ${AVITO_REGION:-krasnodar}

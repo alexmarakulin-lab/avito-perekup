@@ -29,6 +29,16 @@ BOT_TOKEN = os.getenv("AVITO_BOT_TOKEN", "")
 # медленном канале этого не хватает даже на отправку короткого сообщения.
 NET_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
 
+# Обходные пути на случай, когда api.telegram.org с сервера не открывается.
+# Касаются только Telegram: запросы к Авито идут напрямую, с российского
+# адреса - иначе выдача будет чужого региона и блокировки прилетят быстрее.
+#
+# TELEGRAM_PROXY   - socks5://user:pass@host:port или http://user:pass@host:port
+# TELEGRAM_BASE_URL - свой зеркальный адрес Bot API, например
+#                     https://xxx.workers.dev/bot (без токена на конце)
+TELEGRAM_PROXY = os.getenv("TELEGRAM_PROXY", "") or None
+TELEGRAM_BASE_URL = os.getenv("TELEGRAM_BASE_URL", "") or None
+
 # ID владельца через запятую. Пусто - бот открыт всем, кто его найдёт.
 # Для личного бота лучше заполнить: иначе чужие люди будут гонять твой парсер.
 OWNER_IDS = {
@@ -207,7 +217,7 @@ def build_app():
     # Лимиты ожидания подняты с умолчательных 5 секунд: канал до Telegram
     # с российского хостинга живой, но медленный, и отправка ответа не
     # укладывалась в стандартный таймаут - бот получал команды и молчал.
-    app = (
+    builder = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
         .connect_timeout(NET_TIMEOUT)
@@ -218,8 +228,18 @@ def build_app():
         .get_updates_write_timeout(NET_TIMEOUT)
         .get_updates_pool_timeout(NET_TIMEOUT)
         .get_updates_read_timeout(NET_TIMEOUT + 20)
-        .build()
     )
+
+    if TELEGRAM_PROXY:
+        builder = builder.proxy(TELEGRAM_PROXY).get_updates_proxy(TELEGRAM_PROXY)
+        logger.info("Telegram: работаю через прокси")
+
+    if TELEGRAM_BASE_URL:
+        base = TELEGRAM_BASE_URL.rstrip("/")
+        builder = builder.base_url(f"{base}/bot").base_file_url(f"{base}/file/bot")
+        logger.info(f"Telegram: зеркало Bot API {base}")
+
+    app = builder.build()
 
     def protect(handler):
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
