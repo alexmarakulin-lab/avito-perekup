@@ -19,3 +19,10 @@ services:
       TZ: Europe/Moscow
     volumes:
       - ./data:/data
+    # Закрепляем адрес Telegram по IPv4. Иначе на серверах, где IPv6 настроен
+    # но не работает, имя api.telegram.org разрешается в адрес вида 2001:...,
+    # соединение уходит в никуда и бот виснет на старте без ошибки.
+    # Свой адрес можно подставить через TELEGRAM_IPV4 в .env, если этот
+    # перестанет отвечать: узнать его - getent ahostsv4 api.telegram.org
+    extra_hosts:
+      - "api.telegram.org:${TELEGRAM_IPV4:-149.154.167.220}"
