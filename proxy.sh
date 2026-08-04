@@ -96,7 +96,7 @@ fi
 WORKING=""
 for scheme in socks5h socks5 http; do
     URL="${scheme}://${CRED}${HOST}:${PORT}"
-    printf "    пробую %s ... " "$scheme"
+    printf "    пробую %-8s ... " "$scheme"
     OUT="$(curl -sS --max-time 25 --proxy "$URL" https://api.telegram.org/ 2>&1)"
     case "$OUT" in
         *'"ok"'*)
@@ -105,20 +105,28 @@ for scheme in socks5h socks5 http; do
             break
             ;;
         *)
-            echo "${RED}нет${OFF}"
+            # Причину печатаем сразу: без неё непонятно, отказал прокси
+            # в доступе или соединение вообще не дошло.
+            echo "${RED}нет${OFF} — $(printf '%s' "$OUT" | head -1 | cut -c1-70)"
             ;;
     esac
 done
 
 if [ -z "$WORKING" ]; then
     echo
-    warn "Ни один способ не сработал. Последний ответ:"
-    echo "    ${OUT}"
+    warn "Ни один способ не сработал."
     echo
-    echo "Что делать:"
-    echo "  1. Проверь в кабинете продавца порт именно для SOCKS5"
-    echo "  2. Проверь, не включена ли авторизация по IP-адресу"
-    echo "  3. Если всё верно - требуй замену прокси, он нерабочий"
+    echo "Как читать причины выше:"
+    echo "  'Proxy CONNECT aborted'   - прокси ответил, но не пустил:"
+    echo "                              неверные логин с паролем либо адрес"
+    echo "                              этого сервера не разрешён в кабинете"
+    echo "  'Connection timed out'    - прокси молчит: скорее всего взят порт"
+    echo "                              не того протокола"
+    echo "  'Could not resolve proxy' - опечатка в адресе прокси"
+    echo
+    echo "Адрес этого сервера, который нужно разрешить в кабинете продавца:"
+    ip -4 addr show scope global 2>/dev/null \
+        | awk '/inet /{print "    " $2}' | cut -d/ -f1 || true
     exit 1
 fi
 
