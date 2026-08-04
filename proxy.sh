@@ -186,12 +186,19 @@ fi
 # ---------- 5. Записать в .env ----------
 [ -f .env ] || die ".env не найден, сначала пройди установку через setup.sh"
 
+# curl понимает socks5h, а библиотека внутри бота - только socks5://
+# (она и так разрешает имя на стороне прокси). Пишем то, что примет бот.
+FOR_ENV="$WORKING"
+case "$FOR_ENV" in
+    socks5h://*) FOR_ENV="socks5://${FOR_ENV#socks5h://}" ;;
+esac
+
 cp .env .env.backup
 if grep -q '^TELEGRAM_PROXY=' .env; then
     grep -v '^TELEGRAM_PROXY=' .env > .env.tmp
     mv .env.tmp .env
 fi
-echo "TELEGRAM_PROXY=${WORKING}" >> .env
+echo "TELEGRAM_PROXY=${FOR_ENV}" >> .env
 chmod 600 .env
 say "Прописал в .env (старая копия - .env.backup)"
 

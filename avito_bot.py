@@ -39,6 +39,13 @@ NET_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
 TELEGRAM_PROXY = os.getenv("TELEGRAM_PROXY", "") or None
 TELEGRAM_BASE_URL = os.getenv("TELEGRAM_BASE_URL", "") or None
 
+# curl различает socks5 и socks5h (у второго имя разрешает прокси), а httpx
+# знает только socks5:// и разрешает имя на стороне прокси всегда. Строку,
+# подобранную через curl, приводим к понятной библиотеке - иначе запуск
+# падает с "Unknown scheme for proxy URL".
+if TELEGRAM_PROXY and TELEGRAM_PROXY.startswith("socks5h://"):
+    TELEGRAM_PROXY = "socks5://" + TELEGRAM_PROXY[len("socks5h://"):]
+
 # ID владельца через запятую. Пусто - бот открыт всем, кто его найдёт.
 # Для личного бота лучше заполнить: иначе чужие люди будут гонять твой парсер.
 OWNER_IDS = {
