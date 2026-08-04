@@ -93,26 +93,29 @@ else
     CRED=""
 fi
 
-# Бьём в настоящий метод Bot API с заведомо негодным токеном: Telegram
-# отвечает на него коротким JSON с "ok":false. Корень api.telegram.org
-# для проверки не годится - он отдаёт HTML-страницу, и по ней не отличить
-# успешный проход от страницы-заглушки провайдера.
+# Проверка идёт в два захода. Сначала нейтральный сайт - он отвечает
+# коротким текстом с нашим внешним адресом и показывает, работает ли прокси
+# как таковой. Потом настоящий метод Bot API с заведомо негодным токеном:
+# Telegram отвечает коротким JSON. Корень api.telegram.org для проверки не
+# годится - он отдаёт HTML, и успех от заглушки не отличить.
+NEUTRAL_URL="https://api.ipify.org"
 TEST_URL="https://api.telegram.org/bot0:proxycheck/getMe"
 
 WORKING=""
+SEEN_IP=""
+say "Проверяю прокси на нейтральном сайте..."
 for scheme in socks5h socks5 http; do
     URL="${scheme}://${CRED}${HOST}:${PORT}"
-    printf "    пробую %-8s ... " "$scheme"
-    OUT="$(curl -sS --max-time 25 --proxy "$URL" "$TEST_URL" 2>&1)"
+    printf "    %-8s ... " "$scheme"
+    OUT="$(curl -sS --max-time 25 --proxy "$URL" "$NEUTRAL_URL" 2>&1)"
     case "$OUT" in
-        *'"ok"'*)
-            echo "${GREEN}работает${OFF}"
+        *[0-9].[0-9]*.[0-9]*.[0-9]*)
+            echo "${GREEN}работает${OFF}, внешний адрес ${OUT}"
             WORKING="$URL"
+            SEEN_IP="$OUT"
             break
             ;;
         *)
-            # Причину печатаем сразу: без неё непонятно, отказал прокси
-            # в доступе или соединение вообще не дошло.
             echo "${RED}нет${OFF} — $(printf '%s' "$OUT" | head -1 | cut -c1-70)"
             ;;
     esac
@@ -120,21 +123,42 @@ done
 
 if [ -z "$WORKING" ]; then
     echo
-    warn "Ни один способ не сработал."
+    warn "Прокси не работает вообще - даже до нейтрального сайта не доходит."
     echo
     echo "Как читать причины выше:"
     echo "  'Proxy CONNECT aborted'   - прокси ответил, но не пустил:"
     echo "                              неверные логин с паролем либо адрес"
     echo "                              этого сервера не разрешён в кабинете"
-    echo "  'Connection timed out'    - прокси молчит: скорее всего взят порт"
-    echo "                              не того протокола"
+    echo "  'Connection timed out'    - прокси молчит: взят порт не того"
+    echo "                              протокола либо доступ не разрешён"
     echo "  'Could not resolve proxy' - опечатка в адресе прокси"
     echo
     echo "Адрес этого сервера, который нужно разрешить в кабинете продавца:"
     ip -4 addr show scope global 2>/dev/null \
         | awk '/inet /{print "    " $2}' | cut -d/ -f1 || true
+    echo
+    echo "Это вопрос к продавцу прокси - с нашей стороны всё проверено."
     exit 1
 fi
+
+echo
+say "Проверяю через него Telegram..."
+TG="$(curl -sS --max-time 25 --proxy "$WORKING" "$TEST_URL" 2>&1)"
+case "$TG" in
+    *'"ok"'*)
+        say "Telegram отвечает"
+        ;;
+    *)
+        echo
+        warn "Прокси работает (внешний адрес ${SEEN_IP}), но Telegram через него недоступен:"
+        echo "    $(printf '%s' "$TG" | head -1 | cut -c1-70)"
+        echo
+        echo "Значит блокирует уже сам продавец прокси или его канал."
+        echo "Напиши ему в поддержку: прокси не пропускает трафик на"
+        echo "api.telegram.org, хотя другие сайты открывает. Проси замену."
+        exit 1
+        ;;
+esac
 
 echo
 say "${BOLD}Прокси работает.${OFF} Способ: ${WORKING%%:*}"
