@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("AVITO_BOT_TOKEN", "")
 
+# Сколько секунд ждать ответа от Telegram. Умолчание библиотеки - 5, и на
+# медленном канале этого не хватает даже на отправку короткого сообщения.
+NET_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
+
 # ID владельца через запятую. Пусто - бот открыт всем, кто его найдёт.
 # Для личного бота лучше заполнить: иначе чужие люди будут гонять твой парсер.
 OWNER_IDS = {
@@ -200,7 +204,22 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_app():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Лимиты ожидания подняты с умолчательных 5 секунд: канал до Telegram
+    # с российского хостинга живой, но медленный, и отправка ответа не
+    # укладывалась в стандартный таймаут - бот получал команды и молчал.
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(NET_TIMEOUT)
+        .read_timeout(NET_TIMEOUT)
+        .write_timeout(NET_TIMEOUT)
+        .pool_timeout(NET_TIMEOUT)
+        .get_updates_connect_timeout(NET_TIMEOUT)
+        .get_updates_write_timeout(NET_TIMEOUT)
+        .get_updates_pool_timeout(NET_TIMEOUT)
+        .get_updates_read_timeout(NET_TIMEOUT + 20)
+        .build()
+    )
 
     def protect(handler):
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):

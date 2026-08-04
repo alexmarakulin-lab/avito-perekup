@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+# Зеркало Яндекса вместо Docker Hub: сам Hub из России не открывается,
+# образ тот же самый. Если зеркало недоступно - меняй эту строку на
+# FROM python:3.11-slim или на mirror.gcr.io/library/python:3.11-slim
+FROM cr.yandex/mirror/python:3.11-slim
 
 WORKDIR /app
 
