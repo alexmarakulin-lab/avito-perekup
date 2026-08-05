@@ -29,6 +29,12 @@ BOT_TOKEN = os.getenv("AVITO_BOT_TOKEN", "")
 # медленном канале этого не хватает даже на отправку короткого сообщения.
 NET_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
 
+# Как часто сторож проверяет связь с Telegram и сколько неудач подряд
+# считает потерей связи. 5 минут на 3 попытки - четверть часа простоя
+# в худшем случае, дальше перезапуск.
+WATCHDOG_INTERVAL = int(os.getenv("TELEGRAM_WATCHDOG_INTERVAL", "300"))
+WATCHDOG_FAILURES = int(os.getenv("TELEGRAM_WATCHDOG_FAILURES", "3"))
+
 # Обходные пути на случай, когда api.telegram.org с сервера не открывается.
 # Касаются только Telegram: запросы к Авито идут напрямую, с российского
 # адреса - иначе выдача будет чужого региона и блокировки прилетят быстрее.
@@ -220,6 +226,39 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка: {context.error}", exc_info=True)
 
 
+async def watchdog(app):
+    """Сторож связи с Telegram.
+
+    На нестабильном канале соединение обрывается молча: библиотека остаётся
+    ждать ответа, который не придёт, опрос встаёт, бот перестаёт отвечать -
+    и ни ошибки, ни падения при этом нет. Docker такое не чинит: контейнер
+    формально жив.
+
+    Поэтому раз в несколько минут дёргаем Telegram отдельным коротким
+    запросом. Три неудачи подряд - выходим с ошибкой, и Docker поднимает
+    контейнер заново с чистыми соединениями.
+    """
+    failures = 0
+    while True:
+        await asyncio.sleep(WATCHDOG_INTERVAL)
+        try:
+            await app.bot.get_me(read_timeout=20, connect_timeout=20)
+            if failures:
+                logger.info("Сторож: связь с Telegram восстановилась")
+            failures = 0
+        except Exception as exc:
+            failures += 1
+            logger.warning(
+                f"Сторож: Telegram не отвечает ({type(exc).__name__}), "
+                f"неудача {failures} из {WATCHDOG_FAILURES}"
+            )
+            if failures >= WATCHDOG_FAILURES:
+                logger.error("Сторож: связь потеряна, перезапускаю бота")
+                # Именно жёсткий выход: обычная остановка попробует корректно
+                # закрыть те самые зависшие соединения и повиснет вместе с ними.
+                os._exit(1)
+
+
 def build_app():
     # Лимиты ожидания подняты с умолчательных 5 секунд: канал до Telegram
     # с российского хостинга живой, но медленный, и отправка ответа не
@@ -271,6 +310,11 @@ def build_app():
         avito_monitor.init_db()
         application.create_task(avito_monitor.monitor_loop(application.bot))
         logger.info("Монитор Авито: фоновая задача запущена")
+        application.create_task(watchdog(application))
+        logger.info(
+            f"Сторож связи: проверка раз в {WATCHDOG_INTERVAL} с, "
+            f"перезапуск после {WATCHDOG_FAILURES} неудач подряд"
+        )
 
     app.post_init = _post_init
     return app
