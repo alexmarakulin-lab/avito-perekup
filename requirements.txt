@@ -1,3 +1,6 @@
 python-telegram-bot[socks]==21.3
 httpx[socks]==0.27.0
 beautifulsoup4==4.12.3
+# Повторяет рукопожатие настоящего Chrome. Без него Авито за защитой Qrator
+# отдаёт капчу: httpx выдаёт себя не заголовками, а самим соединением.
+curl_cffi==0.16.0

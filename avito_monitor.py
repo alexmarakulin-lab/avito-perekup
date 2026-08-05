@@ -26,6 +26,17 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
+# Qrator узнаёт клиента не только по заголовкам, но и по рукопожатию -
+# по тому, как программа устанавливает защищённое соединение. У Chrome оно
+# своё, у httpx своё, и заголовками эту разницу не замаскировать: клиент,
+# который называется браузером, а здоровается как библиотека, приметнее
+# честного робота. curl_cffi повторяет рукопожатие Chrome целиком.
+try:
+    from curl_cffi.requests import AsyncSession as CffiSession
+    CFFI_AVAILABLE = True
+except ImportError:
+    CFFI_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # ========== НАСТРОЙКИ МОНИТОРА ==========
@@ -225,6 +236,39 @@ SESSION_UA = random.choice(USER_AGENTS)
 RETRY_ATTEMPTS = int(os.getenv("AVITO_RETRY_ATTEMPTS", "3"))
 RETRY_DELAY = float(os.getenv("AVITO_RETRY_DELAY", "8"))
 
+# Чьё рукопожатие изображаем. Список личин ведёт сама библиотека, названия
+# вида chrome, chrome124, safari. AVITO_HTTP=httpx возвращает старый способ,
+# если новый вдруг окажется хуже - менять код для этого не придётся.
+IMPERSONATE = os.getenv("AVITO_IMPERSONATE", "chrome")
+USE_CFFI = CFFI_AVAILABLE and os.getenv("AVITO_HTTP", "cffi").lower() != "httpx"
+
+# Разговор с Авито ведётся одной и той же сессией: в ней живут метки Qrator
+# и уже установленные соединения. Новая сессия на каждый запрос - это опять
+# незнакомец с улицы, со всеми вытекающими.
+_cffi_session = None
+
+
+def _proxies() -> dict | None:
+    return {"http": AVITO_PROXY, "https": AVITO_PROXY} if AVITO_PROXY else None
+
+
+async def _fetch_once(url: str) -> tuple[int, str]:
+    """Один заход на страницу. Возвращает код ответа и текст."""
+    global _cffi_session
+    if USE_CFFI:
+        if _cffi_session is None:
+            _cffi_session = CffiSession(impersonate=IMPERSONATE, timeout=30,
+                                        proxies=_proxies())
+        resp = await _cffi_session.get(url)
+        return resp.status_code, resp.text
+
+    async with httpx.AsyncClient(
+        headers=_headers(), timeout=30, follow_redirects=True,
+        proxy=AVITO_PROXY, cookies=COOKIES,
+    ) as client:
+        resp = await client.get(url)
+    return resp.status_code, resp.text
+
 
 def _headers() -> dict:
     return {
@@ -263,13 +307,9 @@ async def fetch_html(url: str) -> str:
     """
     last = ""
     for attempt in range(1, RETRY_ATTEMPTS + 1):
-        async with httpx.AsyncClient(
-            headers=_headers(), timeout=30, follow_redirects=True,
-            proxy=AVITO_PROXY, cookies=COOKIES,
-        ) as client:
-            resp = await client.get(url)
+        status, html = await _fetch_once(url)
 
-        low = resp.text.lower()
+        low = html.lower()
         # Заслон Qrator приходит с кодом 429, но это не "частим запросами":
         # ни паузы, ни смена заголовков тут не помогают, помогает метка.
         wall = ("доступ ограничен" in low or "firewall" in low
@@ -282,10 +322,11 @@ async def fetch_html(url: str) -> str:
                 continue
             raise AvitoBlocked(last)
 
-        if resp.status_code in (403, 429):
-            raise AvitoBlocked(f"HTTP {resp.status_code} - слишком часто, нужны паузы длиннее")
-        resp.raise_for_status()
-        return resp.text
+        if status in (403, 429):
+            raise AvitoBlocked(f"HTTP {status} - слишком часто, нужны паузы длиннее")
+        if status >= 400:
+            raise AvitoBlocked(f"HTTP {status} от Авито")
+        return html
 
     raise AvitoBlocked(last or "выдача не пришла")
 
@@ -610,6 +651,7 @@ async def self_test(query: str = "перфоратор") -> str:
 
     out = [
         f"🔍 Тест по запросу «{query}»",
+        f"рукопожатие: {'Chrome через curl_cffi' if USE_CFFI else 'httpx'}",
         f"страница получена: {len(html):,} символов".replace(",", " "),
         f"через JSON: {len(via_json)} карточек",
         f"через разметку: {len(via_dom)} карточек" + ("" if BS4_AVAILABLE else " (bs4 не установлен)"),

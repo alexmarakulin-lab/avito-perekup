@@ -12,6 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import avito_monitor as am
 
+# Проверки оффлайновые, поэтому запросы должны идти через httpx - его легко
+# подменить. curl_cffi ходит мимо подмены, прямо в сеть.
+am.USE_CFFI = False
+
 fails = []
 
 
