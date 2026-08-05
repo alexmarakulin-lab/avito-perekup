@@ -18,6 +18,7 @@
     docker compose exec avito python check_avito.py probe
 """
 import asyncio
+import re
 import sys
 
 import httpx
@@ -64,10 +65,51 @@ async def probe():
     print("\nСтрока со словом «выдача» - тот набор, который проходит.")
 
 
+# Приметы, по которым видно, что за страница пришла. Ноль по всем сразу -
+# значит это не выдача, сколько бы килобайт в ней ни было.
+MARKERS = [
+    "window.__preloadedState__",
+    "window.__initialData__",
+    'data-marker="item"',
+    'data-marker="item-title"',
+    'itemprop="price"',
+    "urlPath",
+    "priceDetailed",
+]
+
+
+async def dump(query: str):
+    """Сохраняет страницу и говорит, что это такое.
+
+    Нужен, когда страница приходит, а карточек в ней не находится: без
+    этого невозможно отличить чужую вёрстку от пустой выдачи и от заслона.
+    """
+    html = await avito_monitor.fetch_html(avito_monitor.build_search_url(query))
+    path = "/data/last.html"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"страница: {len(html)} символов, сохранена в {path}")
+
+    title = re.search(r"<title[^>]*>(.*?)</title>", html, re.DOTALL | re.I)
+    print("заголовок:", title.group(1).strip()[:120] if title else "нет")
+
+    print("\nприметы выдачи:")
+    for marker in MARKERS:
+        print(f"  {html.count(marker):>6}  {marker}")
+
+    text = re.sub(r"<(script|style).*?</\1>", " ", html, flags=re.DOTALL | re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    print("\nвидимый текст, начало:\n ", text[:400])
+
+
 async def main():
     args = sys.argv[1:]
     if args[:1] == ["probe"]:
         await probe()
+        return
+    if args[:1] == ["dump"]:
+        await dump(" ".join(args[1:]) or "перфоратор")
         return
     print(await avito_monitor.self_test(" ".join(args) or "перфоратор"))
 
