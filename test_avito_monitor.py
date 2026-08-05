@@ -144,6 +144,17 @@ async def blocked_cases():
         except Exception as exc:
             check(f"блокировка: {label} распознана", False, type(exc).__name__)
 
+    # Заслон Qrator приходит с кодом 429, но лечится не паузами, а сменой IP.
+    # Поэтому в тексте ошибки должна быть капча, а не "слишком часто".
+    httpx.AsyncClient = lambda *a, _r=FakeResp(
+        429, "<html><title>Доступ ограничен: проблема с IP</title></html>"), **kw: FakeClient(_r)
+    try:
+        await am.fetch_html("https://www.avito.ru/krasnodar")
+        check("блокировка: капча с кодом 429 отличается от частых запросов", False, "нет исключения")
+    except am.AvitoBlocked as exc:
+        check("блокировка: капча с кодом 429 отличается от частых запросов",
+              "капча" in str(exc), str(exc))
+
     httpx.AsyncClient = lambda *a, _r=FakeResp(200, html_json), **kw: FakeClient(_r)
     out = await am.self_test("перфоратор")
     check("self_test: докладывает найденное", "3 карточек" in out and "Bosch" in out, out[:120])

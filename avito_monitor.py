@@ -192,7 +192,12 @@ def _headers() -> dict:
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
+        # br (brotli) сознательно не просим: httpx умеет распаковывать только
+        # gzip и deflate. Если попросить br и получить его, вместо страницы в
+        # resp.text окажется двоичный мусор - парсер найдёт ноль карточек, и
+        # выглядеть это будет как "Авито сменил вёрстку". Ошибки при этом не
+        # будет ни одной, поэтому искать причину пришлось бы долго.
+        "Accept-Encoding": "gzip, deflate",
         "Cache-Control": "no-cache",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
@@ -216,15 +221,18 @@ async def fetch_html(url: str) -> str:
     ) as client:
         resp = await client.get(url)
 
+    low = resp.text.lower()
+    # Заслон Qrator отдаётся с кодом 429, но это не "частим запросами", а
+    # капча на весь адрес: паузы тут не помогут, помогает только другой IP.
+    # Различать важно, иначе будешь неделю крутить задержки без толку.
+    wall = ("доступ ограничен" in low or "firewall" in low
+            or "подтвердите, что вы не робот" in low)
+    if wall:
+        raise AvitoBlocked("капча Qrator на весь IP - нужен другой адрес")
     if resp.status_code in (403, 429):
-        raise AvitoBlocked(f"HTTP {resp.status_code} - IP под ограничением")
+        raise AvitoBlocked(f"HTTP {resp.status_code} - слишком часто, нужны паузы длиннее")
     resp.raise_for_status()
-
-    html = resp.text
-    low = html.lower()
-    if "firewall" in low or "доступ ограничен" in low or "подтвердите, что вы не робот" in low:
-        raise AvitoBlocked("Авито показал капчу вместо выдачи")
-    return html
+    return resp.text
 
 
 # ========== ПАРСИНГ ==========
