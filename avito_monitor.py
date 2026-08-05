@@ -197,9 +197,32 @@ def get_owner_chat() -> int | None:
 
 
 # ========== ЗАПРОС К АВИТО ==========
+# Печенье Qrator живёт здесь и переживает отдельные запросы. Когда защита
+# отдаёт капчу, она вместе с ней выдаёт метку _adcc - пропуск, который
+# браузер предъявляет при следующем заходе. Поэтому человек видит капчу
+# один раз, а дальше ходит свободно.
+#
+# Раньше каждый запрос открывался с чистого листа и метку выбрасывал. Для
+# защиты это выглядело как бесконечная вереница незнакомцев, и капча
+# доставалась каждому заново.
+COOKIES = httpx.Cookies()
+
+# Личина выбирается один раз при запуске и дальше не меняется. Браузер не
+# перепредставляется на каждой странице, и бот не должен: одна метка плюс
+# один и тот же User-Agent выглядят как один посетитель, а метка от одного
+# в паре с именем другого - как подделка.
+SESSION_UA = random.choice(USER_AGENTS)
+
+# Сколько раз повторить запрос, упёршийся в капчу, и сколько ждать между
+# попытками. Первый заход часто отдаёт капчу и выдаёт метку, второй с этой
+# меткой уже проходит - ровно как у браузера.
+RETRY_ATTEMPTS = int(os.getenv("AVITO_RETRY_ATTEMPTS", "3"))
+RETRY_DELAY = float(os.getenv("AVITO_RETRY_DELAY", "8"))
+
+
 def _headers() -> dict:
     return {
-        "User-Agent": random.choice(USER_AGENTS),
+        "User-Agent": SESSION_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
         # br (brotli) сознательно не просим: httpx умеет распаковывать только
@@ -226,23 +249,39 @@ def build_search_url(query: str) -> str:
 
 
 async def fetch_html(url: str) -> str:
-    async with httpx.AsyncClient(
-        headers=_headers(), timeout=30, follow_redirects=True, proxy=AVITO_PROXY
-    ) as client:
-        resp = await client.get(url)
+    """Забирает страницу Авито, переживая капчу Qrator.
 
-    low = resp.text.lower()
-    # Заслон Qrator отдаётся с кодом 429, но это не "частим запросами", а
-    # капча на весь адрес: паузы тут не помогут, помогает только другой IP.
-    # Различать важно, иначе будешь неделю крутить задержки без толку.
-    wall = ("доступ ограничен" in low or "firewall" in low
-            or "подтвердите, что вы не робот" in low)
-    if wall:
-        raise AvitoBlocked("капча Qrator на весь IP - нужен другой адрес")
-    if resp.status_code in (403, 429):
-        raise AvitoBlocked(f"HTTP {resp.status_code} - слишком часто, нужны паузы длиннее")
-    resp.raise_for_status()
-    return resp.text
+    Капча с первого захода - обычное дело, а не приговор: вместе с ней
+    приходит метка, и следующая попытка с этой меткой обычно проходит.
+    Поэтому упираться в капчу сразу не надо, надо зайти ещё раз.
+    """
+    last = ""
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        async with httpx.AsyncClient(
+            headers=_headers(), timeout=30, follow_redirects=True,
+            proxy=AVITO_PROXY, cookies=COOKIES,
+        ) as client:
+            resp = await client.get(url)
+
+        low = resp.text.lower()
+        # Заслон Qrator приходит с кодом 429, но это не "частим запросами":
+        # ни паузы, ни смена заголовков тут не помогают, помогает метка.
+        wall = ("доступ ограничен" in low or "firewall" in low
+                or "подтвердите, что вы не робот" in low)
+        if wall:
+            last = f"капча Qrator, попыток {attempt}"
+            logger.debug(f"Монитор Авито: капча на попытке {attempt}, беру метку и повторяю")
+            if attempt < RETRY_ATTEMPTS:
+                await asyncio.sleep(RETRY_DELAY * attempt)
+                continue
+            raise AvitoBlocked(last)
+
+        if resp.status_code in (403, 429):
+            raise AvitoBlocked(f"HTTP {resp.status_code} - слишком часто, нужны паузы длиннее")
+        resp.raise_for_status()
+        return resp.text
+
+    raise AvitoBlocked(last or "выдача не пришла")
 
 
 # ========== ПАРСИНГ ==========

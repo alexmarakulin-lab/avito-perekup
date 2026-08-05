@@ -152,6 +152,7 @@ async def blocked_cases():
 
     import httpx
     original = httpx.AsyncClient
+    am.RETRY_DELAY = 0  # в тестах ждать между попытками незачем
 
     for code, body, label in [
         (403, "ok", "HTTP 403"),
@@ -177,6 +178,15 @@ async def blocked_cases():
     except am.AvitoBlocked as exc:
         check("блокировка: капча с кодом 429 отличается от частых запросов",
               "капча" in str(exc), str(exc))
+
+    # Капча с первого захода - обычное дело, а не приговор: вместе с ней
+    # приходит метка, и вторая попытка с этой меткой проходит. Раньше бот
+    # сдавался сразу и оставался без выдачи на ровном месте.
+    sequence = [FakeResp(429, "<html>Доступ ограничен</html>"), FakeResp(200, html_json)]
+    httpx.AsyncClient = lambda *a, **kw: FakeClient(sequence.pop(0))
+    got = await am.fetch_html("https://www.avito.ru/krasnodar")
+    check("блокировка: вторая попытка после капчи проходит",
+          "preloadedState" in got, got[:60])
 
     httpx.AsyncClient = lambda *a, _r=FakeResp(200, html_json), **kw: FakeClient(_r)
     out = await am.self_test("перфоратор")
