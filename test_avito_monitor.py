@@ -33,7 +33,18 @@ payload = {
         {"id": 1004, "title": "Реклама", "priceDetailed": {"value": 0}, "urlPath": ""},
     ]}},
 }
-html_json = 'window.__initialData__ = "' + quote(json.dumps(payload, ensure_ascii=False)) + '";'
+# Старый формат: строка url-кодирована. Встречался до лета 2026.
+html_json_old = 'window.__initialData__ = "' + quote(json.dumps(payload, ensure_ascii=False)) + '";'
+
+# Нынешний формат: тот же JSON, но строкой с экранированными кавычками
+# внутри. Именно так выглядит window.__preloadedState__ на живой выдаче -
+# проверено на сервере 05.08.2026. Внешний json.dumps даёт ровно такое
+# экранирование, какое отдаёт Авито.
+html_json = ('window.__preloadedState__ = '
+             + json.dumps(json.dumps(payload, ensure_ascii=False)) + ';')
+
+check("JSON: старый формат ещё понимается", len(am.parse_from_json(html_json_old)) == 3,
+      f"получено {len(am.parse_from_json(html_json_old))}")
 
 items = am.parse_from_json(html_json)
 check("JSON: карточки разобраны", len(items) == 3, f"получено {len(items)}")
@@ -41,6 +52,18 @@ check("JSON: цена числом", items[0]["price"] == 3500, items[0]["price"
 check("JSON: абсолютный URL", items[0]["url"].startswith("https://www.avito.ru/krasnodar/"), items[0]["url"])
 check("JSON: адрес", items[0]["address"] == "Карасунский")
 check("JSON: пустой urlPath отброшен", all(i["item_id"] != "1004" for i in items))
+
+# Кавычка в заголовке - ровно то место, где ломался прежний разбор: он брал
+# текст «до ближайшей кавычки» и обрывал JSON на первой же экранированной.
+tricky = {"state": {"items": [
+    {"id": 1005, "title": 'Перфоратор "Зубр" ЗП-1100', "priceDetailed": {"value": 2200},
+     "urlPath": "/krasnodar/instrumenty/perforator_1005"},
+]}}
+html_tricky = ('window.__preloadedState__ = '
+               + json.dumps(json.dumps(tricky, ensure_ascii=False)) + ';')
+got = am.parse_from_json(html_tricky)
+check("JSON: кавычка в заголовке не рвёт разбор",
+      len(got) == 1 and got[0]["title"] == 'Перфоратор "Зубр" ЗП-1100', got)
 
 # --- фикстура: разметка ---
 html_dom = """

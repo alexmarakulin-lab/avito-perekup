@@ -268,13 +268,32 @@ def _walk_json_items(node, out: list, depth: int = 0):
             _walk_json_items(value, out, depth + 1)
 
 
+# Авито кладёт данные выдачи в переменную на странице. Имя переменной со
+# временем менялось: было __initialData__, стало __preloadedState__ - ищем
+# оба, чтобы не остаться без разбора при очередном переезде.
+#
+# Значение - строка в кавычках, и внутри неё кавычки экранированы обратной
+# косой. Поэтому «до ближайшей кавычки» брать нельзя: строка оборвётся на
+# первой же \" внутри. Шаблон ниже честно проходит экранированные пары.
+STATE_VAR_RE = re.compile(
+    r'window\.__(?:preloadedState|initialData)__\s*=\s*("(?:\\.|[^"\\])*")',
+    re.DOTALL,
+)
+
+
 def parse_from_json(html: str) -> list:
     """Основная стратегия: JSON, который Авито встраивает в страницу."""
-    match = re.search(r'window\.__initialData__\s*=\s*"(.+?)"\s*;', html, re.DOTALL)
+    match = STATE_VAR_RE.search(html)
     if not match:
         return []
     try:
-        data = json.loads(unquote(match.group(1)))
+        # Первый json.loads снимает кавычки и экранирование - остаётся текст
+        # самого JSON. Старый __initialData__ был вдобавок url-кодирован,
+        # у него текст начинается с процента, а не с фигурной скобки.
+        text = json.loads(match.group(1))
+        if not text.lstrip().startswith(("{", "[")):
+            text = unquote(text)
+        data = json.loads(text)
     except (ValueError, UnicodeDecodeError) as exc:
         logger.debug(f"Монитор Авито: JSON не разобрался ({exc})")
         return []
