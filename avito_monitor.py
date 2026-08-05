@@ -178,10 +178,20 @@ def set_setting(key: str, value):
 
 
 def is_enabled() -> bool:
+    """Включён ли монитор.
+
+    Кнопка «🟢 Включить» пишет признак в базу, но нажать её можно только
+    когда опрос Telegram жив, а он на этом сервере отваливается. Поэтому
+    есть второй путь: AVITO_ENABLED=1 в .env. Монитор поднимется сразу при
+    старте, независимо от того, доходят кнопки или нет.
+    """
+    if os.getenv("AVITO_ENABLED", "").strip() in ("1", "true", "yes"):
+        return True
     return get_setting("enabled", "0") == "1"
 
 
 def get_owner_chat() -> int | None:
+    """Куда слать находки. Из базы, а если там пусто - из .env."""
     raw = get_setting("owner_chat") or os.getenv("AVITO_OWNER_CHAT", "")
     return int(raw) if raw else None
 

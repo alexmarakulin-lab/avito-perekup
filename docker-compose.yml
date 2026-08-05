@@ -13,6 +13,10 @@ services:
       TELEGRAM_BASE_URL: ${TELEGRAM_BASE_URL:-}
       TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-30}
       AVITO_DB: /data/avito.db
+      # Запуск монитора без кнопок: нужен, пока опрос Telegram нестабилен.
+      # Кнопка «🟢 Включить» делает то же самое, но требует живого опроса.
+      AVITO_ENABLED: ${AVITO_ENABLED:-}
+      AVITO_OWNER_CHAT: ${AVITO_OWNER_CHAT:-}
       AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
       AVITO_REGION: ${AVITO_REGION:-krasnodar}
       AVITO_PROXY: ${AVITO_PROXY:-}

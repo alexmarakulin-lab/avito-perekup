@@ -199,6 +199,20 @@ check("настройки: по умолчанию выключен", not am.is_
 am.set_setting("enabled", "1")
 check("настройки: включение работает", am.is_enabled())
 
+# Запуск без кнопок: пока опрос Telegram нестабилен, нажать «🟢 Включить»
+# может не получиться, и монитор должен подниматься из .env.
+am.set_setting("enabled", "0")
+check("настройки: без базы и без .env монитор выключен", not am.is_enabled())
+os.environ["AVITO_ENABLED"] = "1"
+check("настройки: AVITO_ENABLED включает монитор мимо базы", am.is_enabled())
+os.environ["AVITO_ENABLED"] = ""
+check("настройки: пустой AVITO_ENABLED ничего не включает", not am.is_enabled())
+
+os.environ["AVITO_OWNER_CHAT"] = "777"
+am.set_setting("owner_chat", "")
+check("настройки: чат владельца берётся из .env, если в базе пусто",
+      am.get_owner_chat() == 777, am.get_owner_chat())
+
 print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"ПРОВАЛЕНО: {fails}"))
 os.unlink(os.environ["AVITO_DB"])
 sys.exit(1 if fails else 0)

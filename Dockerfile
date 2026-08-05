@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY avito_bot.py avito_monitor.py resale_expert.py \
+COPY avito_bot.py avito_monitor.py resale_expert.py check_avito.py \
      test_avito_monitor.py test_avito_bot.py test_resale_expert.py ./
 
 # База монитора живёт здесь. Том обязателен: без него история цен стирается
