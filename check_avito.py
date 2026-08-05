@@ -88,6 +88,9 @@ async def dump(query: str):
         html = await avito_monitor.fetch_html(avito_monitor.build_search_url(query))
     except avito_monitor.AvitoBlocked as exc:
         print(f"🚫 Выдача не пришла: {exc}")
+        print(f"рукопожатие: {'Chrome через curl_cffi' if avito_monitor.USE_CFFI else 'httpx'}")
+        for line in avito_monitor.LAST_TRACE:
+            print(" ", line)
         print("Защита отпускает волнами - повтори команду через несколько минут.")
         return
     path = "/data/last.html"

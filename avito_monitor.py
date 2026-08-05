@@ -247,6 +247,10 @@ USE_CFFI = CFFI_AVAILABLE and os.getenv("AVITO_HTTP", "cffi").lower() != "httpx"
 # незнакомец с улицы, со всеми вытекающими.
 _cffi_session = None
 
+# След последнего обращения: по попытке на строку. Нужен, чтобы неудачный
+# заход тоже приносил сведения, а не одно слово «не пришло».
+LAST_TRACE: list[str] = []
+
 
 def _proxies() -> dict | None:
     return {"http": AVITO_PROXY, "https": AVITO_PROXY} if AVITO_PROXY else None
@@ -306,8 +310,10 @@ async def fetch_html(url: str) -> str:
     Поэтому упираться в капчу сразу не надо, надо зайти ещё раз.
     """
     last = ""
+    LAST_TRACE.clear()
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         status, html = await _fetch_once(url)
+        LAST_TRACE.append(f"попытка {attempt}: HTTP {status}, {len(html)} симв.")
 
         low = html.lower()
         # Заслон Qrator приходит с кодом 429, но это не "частим запросами":
