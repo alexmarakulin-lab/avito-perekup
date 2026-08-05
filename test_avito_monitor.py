@@ -154,6 +154,13 @@ async def blocked_cases():
     original = httpx.AsyncClient
     am.RETRY_DELAY = 0  # в тестах ждать между попытками незачем
 
+    # Метка Qrator обязана переживать запросы. Получив httpx.Cookies,
+    # библиотека делает копию, и всё сложенное туда пропадает - поэтому
+    # проверяем именно то, что банка общая, а не одноимённая.
+    probe_client = httpx.AsyncClient(cookies=am.COOKIES)
+    check("метка: банка общая, а не копия", probe_client.cookies.jar is am.COOKIES)
+    await probe_client.aclose()
+
     for code, body, label in [
         (403, "ok", "HTTP 403"),
         (429, "ok", "HTTP 429"),

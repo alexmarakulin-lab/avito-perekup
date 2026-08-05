@@ -84,7 +84,12 @@ async def dump(query: str):
     Нужен, когда страница приходит, а карточек в ней не находится: без
     этого невозможно отличить чужую вёрстку от пустой выдачи и от заслона.
     """
-    html = await avito_monitor.fetch_html(avito_monitor.build_search_url(query))
+    try:
+        html = await avito_monitor.fetch_html(avito_monitor.build_search_url(query))
+    except avito_monitor.AvitoBlocked as exc:
+        print(f"🚫 Выдача не пришла: {exc}")
+        print("Защита отпускает волнами - повтори команду через несколько минут.")
+        return
     path = "/data/last.html"
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
