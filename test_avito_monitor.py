@@ -231,6 +231,27 @@ check("URL: потолок цены", "pmax=5000" in url, url)
 check("URL: сортировка по свежести", "s=104" in url, url)
 check("URL: пробел закодирован", "%20" in url or "+" in url, url)
 
+# --- очередь поисковых слов ---
+# Гнать все слова подряд - вернейший способ получить капчу, ею и кончилось
+# 06.08.2026. Проверяем, что горстями обходятся все слова и без пропусков.
+am.QUERIES_PER_CYCLE = 4
+total = len(am.all_queries())
+am._query_cursor = 0
+seen = []
+for _ in range((total + 3) // 4):
+    seen.extend(am.take_queries())
+check("очередь: за круг берётся ровно горсть", len(am.take_queries()) == 4)
+check("очередь: за несколько кругов обходятся все слова",
+      set(seen) == set(am.all_queries()), f"{len(set(seen))} из {total}")
+
+am._query_cursor = total - 2
+tail = am.take_queries()
+check("очередь: с конца списка добирает с начала", len(tail) == 4 and len(set(tail)) == 4, tail)
+
+am.QUERIES_PER_CYCLE = 0
+check("очередь: ноль означает все слова разом", len(am.take_queries()) == total)
+am.QUERIES_PER_CYCLE = 4
+
 # --- настройки ---
 am.set_setting("owner_chat", 12345)
 check("настройки: чат владельца сохранён", am.get_owner_chat() == 12345)

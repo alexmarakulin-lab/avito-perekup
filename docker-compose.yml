@@ -18,6 +18,12 @@ services:
       AVITO_ENABLED: ${AVITO_ENABLED:-}
       AVITO_OWNER_CHAT: ${AVITO_OWNER_CHAT:-}
       AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
+      # Скорость обхода. От неё зависит и блокировка, и счёт за трафик,
+      # если Авито читается через прокси с оплатой по гигабайтам.
+      AVITO_QUERIES_PER_CYCLE: ${AVITO_QUERIES_PER_CYCLE:-4}
+      AVITO_REQ_DELAY_MIN: ${AVITO_REQ_DELAY_MIN:-45}
+      AVITO_REQ_DELAY_MAX: ${AVITO_REQ_DELAY_MAX:-90}
+      AVITO_CYCLE_PAUSE: ${AVITO_CYCLE_PAUSE:-600}
       AVITO_REGION: ${AVITO_REGION:-krasnodar}
       AVITO_PROXY: ${AVITO_PROXY:-}
       TZ: Europe/Moscow

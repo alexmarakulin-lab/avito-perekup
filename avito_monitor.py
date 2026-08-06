@@ -48,11 +48,26 @@ MAX_PRICE = int(os.getenv("AVITO_MAX_PRICE", "5000"))
 # Совсем дешёвое чаще всего мусор или развод - отсекаем снизу.
 MIN_PRICE = int(os.getenv("AVITO_MIN_PRICE", "300"))
 
-# Пауза между запросами к Авито. Меньше 6 секунд - быстро ловим блокировку.
-REQ_DELAY_MIN = float(os.getenv("AVITO_REQ_DELAY_MIN", "8"))
-REQ_DELAY_MAX = float(os.getenv("AVITO_REQ_DELAY_MAX", "16"))
-# Пауза между полными кругами по всем категориям.
-CYCLE_PAUSE = int(os.getenv("AVITO_CYCLE_PAUSE", "120"))
+# Пауза между запросами к Авито.
+#
+# Умолчания подняты по горькому опыту 06.08.2026. Утром три обращения за всё
+# время - приходила настоящая выдача. Днём около сорока за час - капча, и не
+# отпустило до вечера. А прежние настройки (8-16 секунд, круг раз в две
+# минуты) давали примерно 180 обращений в час круглосуточно, то есть вчетверо
+# больше того, чем блокировка была заработана.
+REQ_DELAY_MIN = float(os.getenv("AVITO_REQ_DELAY_MIN", "45"))
+REQ_DELAY_MAX = float(os.getenv("AVITO_REQ_DELAY_MAX", "90"))
+# Пауза между кругами.
+CYCLE_PAUSE = int(os.getenv("AVITO_CYCLE_PAUSE", "900"))
+
+# Сколько поисковых слов обходить за один круг. Ноль - все подряд, как было.
+#
+# Слов девятнадцать, и гнать их пачкой - вернейший способ снова попасть в
+# капчу. Поэтому за круг берётся горсть, а список крутится по кольцу: за
+# несколько кругов слова всё равно обойдутся все, просто вразвалку. Заодно
+# это прямо экономит деньги, если Авито читается через прокси с оплатой за
+# трафик: каждая страница выдачи весит без малого мегабайт.
+QUERIES_PER_CYCLE = int(os.getenv("AVITO_QUERIES_PER_CYCLE", "3"))
 
 # Цена считается вкусной, если она не выше этой доли от медианы рынка.
 DEAL_RATIO = float(os.getenv("AVITO_DEAL_RATIO", "0.6"))
@@ -491,6 +506,37 @@ def parse_search(html: str) -> list:
     return items
 
 
+# ========== ОЧЕРЕДЬ ПОИСКОВЫХ СЛОВ ==========
+def all_queries() -> list:
+    """Все слова одним списком, парами «категория, слово»."""
+    return [(key, q) for key, cat in CATEGORIES.items() for q in cat["queries"]]
+
+
+# Докуда дошли по кольцу. Переживает круги, но не перезапуск бота - и это
+# не беда: после перезапуска обход просто начнётся сначала.
+_query_cursor = 0
+
+
+def take_queries() -> list:
+    """Отдаёт горсть слов на текущий круг и двигает указатель по кольцу.
+
+    Гнать все девятнадцать слов подряд - вернейший способ получить капчу:
+    именно так мы её и заработали. Поэтому за круг берётся несколько штук,
+    а список крутится: за пять-шесть кругов слова обойдутся все, просто
+    вразвалку. Ничего не теряется, растягивается только время.
+    """
+    global _query_cursor
+    queries = all_queries()
+    if QUERIES_PER_CYCLE <= 0 or QUERIES_PER_CYCLE >= len(queries):
+        return queries
+
+    start = _query_cursor % len(queries)
+    _query_cursor = (start + QUERIES_PER_CYCLE) % len(queries)
+    # Кольцо: если горсть не помещается в хвост, добираем из начала списка.
+    doubled = queries + queries
+    return doubled[start:start + QUERIES_PER_CYCLE]
+
+
 def is_junk(title: str) -> bool:
     low = title.lower()
     return any(word in low for word in STOP_WORDS)
@@ -720,40 +766,39 @@ async def monitor_loop(bot):
                 continue
 
             found_total = 0
-            for cat_key, cat in CATEGORIES.items():
-                for query in cat["queries"]:
+            for cat_key, query in take_queries():
+                try:
+                    html = await fetch_html(build_search_url(query))
+                except AvitoBlocked as exc:
+                    backoff = min(backoff * 2 or 300, 3600)
+                    logger.warning(f"Монитор Авито: {exc}. Пауза {backoff} с")
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"⚠️ Авито ограничил доступ ({exc}). "
+                             f"Пауза {backoff // 60} мин, потом продолжу.",
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                except Exception as exc:
+                    logger.warning(f"Монитор Авито: запрос «{query}» упал ({exc})")
+                    await asyncio.sleep(REQ_DELAY_MAX)
+                    continue
+
+                backoff = 0
+                items = parse_search(html)
+                fresh = save_items(cat_key, query, items)
+                found_total += len(fresh)
+
+                for item in fresh:
+                    good, note = rate_deal(item, query)
+                    if not good:
+                        continue
                     try:
-                        html = await fetch_html(build_search_url(query))
-                    except AvitoBlocked as exc:
-                        backoff = min(backoff * 2 or 300, 3600)
-                        logger.warning(f"Монитор Авито: {exc}. Пауза {backoff} с")
-                        await bot.send_message(
-                            chat_id=chat_id,
-                            text=f"⚠️ Авито ограничил доступ ({exc}). "
-                                 f"Пауза {backoff // 60} мин, потом продолжу.",
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
+                        await send_alert(bot, chat_id, item, cat_key, note)
                     except Exception as exc:
-                        logger.warning(f"Монитор Авито: запрос «{query}» упал ({exc})")
-                        await asyncio.sleep(REQ_DELAY_MAX)
-                        continue
+                        logger.error(f"Монитор Авито: не отправил алерт ({exc})")
 
-                    backoff = 0
-                    items = parse_search(html)
-                    fresh = save_items(cat_key, query, items)
-                    found_total += len(fresh)
-
-                    for item in fresh:
-                        good, note = rate_deal(item, query)
-                        if not good:
-                            continue
-                        try:
-                            await send_alert(bot, chat_id, item, cat_key, note)
-                        except Exception as exc:
-                            logger.error(f"Монитор Авито: не отправил алерт ({exc})")
-
-                    await asyncio.sleep(random.uniform(REQ_DELAY_MIN, REQ_DELAY_MAX))
+                await asyncio.sleep(random.uniform(REQ_DELAY_MIN, REQ_DELAY_MAX))
 
             logger.info(f"Монитор Авито: круг закрыт, новых карточек {found_total}")
 
@@ -790,15 +835,19 @@ async def cmd_avito(update, context):
                            (time.time() - 86400,)).fetchone()["c"]
         sold = conn.execute("SELECT COUNT(*) c FROM items WHERE sold_at IS NOT NULL").fetchone()["c"]
 
-    queries = sum(len(c["queries"]) for c in CATEGORIES.values())
-    cycle_min = int((queries * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60)
+    queries = len(all_queries())
+    per_cycle = len(take_queries())
+    cycle_min = max(1, int((per_cycle * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60))
+    # Сколько ждать, пока очередь обойдёт все слова и вернётся к первому.
+    sweep_min = cycle_min * -(-queries // per_cycle)
 
     await update.message.reply_text(
         f"{'🟢 Монитор работает' if is_enabled() else '⚪️ Монитор выключен'}\n\n"
         f"Регион: {AVITO_REGION}\n"
         f"Потолок закупки: {MAX_PRICE:,} ₽".replace(",", " ") + "\n"
         f"Категорий: {len(CATEGORIES)}, запросов: {queries}\n"
-        f"Круг обхода: ~{cycle_min} мин\n\n"
+        f"За круг: {per_cycle} слов, ~{cycle_min} мин\n"
+        f"Полный обход всех слов: ~{sweep_min} мин\n\n"
         f"В базе: {total} объявлений\n"
         f"За сутки: {day}\n"
         f"Отслежено продаж: {sold}\n\n"
