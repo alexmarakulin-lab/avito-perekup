@@ -302,6 +302,21 @@ def build_search_url(query: str) -> str:
     )
 
 
+def is_home_page(html: str) -> bool:
+    """Подсунули ли нам главную страницу вместо выдачи поиска.
+
+    Отличается по заголовку: у выдачи он всегда про товар и город -
+    «Перфораторы купить в Краснодаре», у главной обезличенный. Судить по
+    отсутствию карточек нельзя: пустая выдача выглядит так же, а это
+    законный ответ, который бот обязан принимать спокойно.
+    """
+    match = re.search(r"<title[^>]*>(.*?)</title>", html, re.DOTALL | re.I)
+    if not match:
+        return False
+    title = match.group(1).strip().lower()
+    return "объявления на сайте авито" in title and 'data-marker="item"' not in html
+
+
 async def fetch_html(url: str) -> str:
     """Забирает страницу Авито, переживая капчу Qrator.
 
@@ -318,11 +333,21 @@ async def fetch_html(url: str) -> str:
         low = html.lower()
         # Заслон Qrator приходит с кодом 429, но это не "частим запросами":
         # ни паузы, ни смена заголовков тут не помогают, помогает метка.
-        wall = ("доступ ограничен" in low or "firewall" in low
-                or "подтвердите, что вы не робот" in low)
-        if wall:
-            last = f"капча Qrator, попыток {attempt}"
-            logger.debug(f"Монитор Авито: капча на попытке {attempt}, беру метку и повторяю")
+        if ("доступ ограничен" in low or "firewall" in low
+                or "подтвердите, что вы не робот" in low):
+            reason = "капча Qrator"
+        elif is_home_page(html):
+            # Вежливый заслон: вместо выдачи подсовывается главная. Код 200,
+            # почти полмегабайта разметки, ни одного объявления. Для программы
+            # это неотличимо от "по запросу ничего не нашлось", и если такое
+            # проглотить, бот решит, что рынок пуст, и будет молчать неделями.
+            reason = "главная вместо выдачи"
+        else:
+            reason = ""
+
+        if reason:
+            last = f"{reason}, попыток {attempt}"
+            logger.debug(f"Монитор Авито: {reason} на попытке {attempt}, повторяю")
             if attempt < RETRY_ATTEMPTS:
                 await asyncio.sleep(RETRY_DELAY * attempt)
                 continue

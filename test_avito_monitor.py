@@ -199,6 +199,24 @@ async def blocked_cases():
     check("блокировка: вторая попытка после капчи проходит",
           "preloadedState" in got, got[:60])
 
+    # Вежливый заслон: вместо выдачи подсовывают главную. Код 200, разметки
+    # полмегабайта, объявлений ноль - для программы неотличимо от «ничего не
+    # нашлось». Проглотить такое молча значит решить, что рынок пуст.
+    home = "<html><title>Авито — Объявления на сайте Авито</title><body>меню</body></html>"
+    httpx.AsyncClient = lambda *a, _r=FakeResp(200, home), **kw: FakeClient(_r)
+    try:
+        await am.fetch_html("https://www.avito.ru/krasnodar")
+        check("блокировка: главная вместо выдачи распознана", False, "исключения не было")
+    except am.AvitoBlocked as exc:
+        check("блокировка: главная вместо выдачи распознана", "главная" in str(exc), str(exc))
+
+    # А вот честно пустая выдача - законный ответ, на него ругаться нельзя.
+    empty = ('<html><title>Перфораторы купить в Краснодаре</title>'
+             '<body>Ничего не найдено</body></html>')
+    httpx.AsyncClient = lambda *a, _r=FakeResp(200, empty), **kw: FakeClient(_r)
+    check("блокировка: пустая выдача заслоном не считается",
+          await am.fetch_html("https://www.avito.ru/krasnodar") == empty)
+
     httpx.AsyncClient = lambda *a, _r=FakeResp(200, html_json), **kw: FakeClient(_r)
     out = await am.self_test("перфоратор")
     check("self_test: докладывает найденное", "3 карточек" in out and "Bosch" in out, out[:120])
