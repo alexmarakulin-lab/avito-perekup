@@ -20,6 +20,7 @@
 import asyncio
 import re
 import sys
+from urllib.parse import quote
 
 import httpx
 
@@ -111,10 +112,46 @@ async def dump(query: str):
     print("\nвидимый текст, начало:\n ", text[:400])
 
 
+async def urls():
+    """Сравнивает варианты адреса поиска.
+
+    Авито умеет молча увести на главную вместо выдачи - страница приходит,
+    код 200, объявлений ноль. Отличить это от сломанного разбора можно
+    только по заголовку страницы, поэтому здесь он и печатается.
+    """
+    region = avito_monitor.AVITO_REGION
+    variants = [
+        ("как строит бот сейчас", avito_monitor.build_search_url("перфоратор")),
+        ("латиницей, без нижней цены и района",
+         f"https://www.avito.ru/{region}?q=perforator&pmax=5000&s=104"),
+        ("кириллицей, без нижней цены и района",
+         f"https://www.avito.ru/{region}?q={quote('перфоратор')}&pmax=5000&s=104"),
+        ("кириллицей, совсем без рамок",
+         f"https://www.avito.ru/{region}?q={quote('перфоратор')}"),
+    ]
+
+    for name, url in variants:
+        try:
+            status, html = await avito_monitor._fetch_once(url)
+            title = re.search(r"<title[^>]*>(.*?)</title>", html, re.DOTALL | re.I)
+            title = title.group(1).strip()[:45] if title else "нет"
+            cards = html.count('data-marker="item"')
+            print(f"  HTTP {status}  {len(html):>7} симв.  карточек {cards:>3}  {name}")
+            print(f"           заголовок: {title}")
+        except Exception as exc:
+            print(f"  ошибка {type(exc).__name__}  <- {name}")
+        await asyncio.sleep(15)
+
+    print("\nНужен вариант, где карточек больше нуля, а в заголовке - «купить».")
+
+
 async def main():
     args = sys.argv[1:]
     if args[:1] == ["probe"]:
         await probe()
+        return
+    if args[:1] == ["urls"]:
+        await urls()
         return
     if args[:1] == ["dump"]:
         await dump(" ".join(args[1:]) or "перфоратор")
