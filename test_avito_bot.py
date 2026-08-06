@@ -143,6 +143,15 @@ if PTB:
     check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 1, len(handlers))
     check("сборка: post_init назначен", callable(app.post_init))
 
+    # Сторож бесполезен, если приставлен не к тому соединению: библиотека
+    # держит опрос и всё остальное на разных наборах, и прежний сторож
+    # сторожил не тот. Проверка прямая - опрос идёт через наблюдаемый класс.
+    try:
+        watched = isinstance(app.bot._request[0], avito_bot.WatchedRequest)
+    except Exception as exc:
+        watched = f"не добрался до соединения опроса: {exc}"
+    check("сборка: сторож приставлен именно к опросу", watched is True, watched)
+
     async def post_init_runs():
         started = {"v": False}
         def fake_create_task(coro, **kw):

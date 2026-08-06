@@ -8,10 +8,12 @@ import asyncio
 import logging
 import os
 import sys
+import time
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 import avito_monitor
 import resale_expert
@@ -29,11 +31,11 @@ BOT_TOKEN = os.getenv("AVITO_BOT_TOKEN", "")
 # медленном канале этого не хватает даже на отправку короткого сообщения.
 NET_TIMEOUT = int(os.getenv("TELEGRAM_TIMEOUT", "30"))
 
-# Как часто сторож проверяет связь с Telegram и сколько неудач подряд
-# считает потерей связи. 5 минут на 3 попытки - четверть часа простоя
-# в худшем случае, дальше перезапуск.
-WATCHDOG_INTERVAL = int(os.getenv("TELEGRAM_WATCHDOG_INTERVAL", "300"))
-WATCHDOG_FAILURES = int(os.getenv("TELEGRAM_WATCHDOG_FAILURES", "3"))
+# Как часто сторож смотрит на опрос и сколько молчания считает поломкой.
+# Здоровый опрос отвечает раз в десяток секунд, так что три минуты тишины -
+# это уже не заминка на медленном канале, а вставший канал.
+WATCHDOG_INTERVAL = int(os.getenv("TELEGRAM_WATCHDOG_INTERVAL", "60"))
+WATCHDOG_SILENCE = int(os.getenv("TELEGRAM_WATCHDOG_SILENCE", "180"))
 
 # Обходные пути на случай, когда api.telegram.org с сервера не открывается.
 # Касаются только Telegram: запросы к Авито идут напрямую, с российского
@@ -226,37 +228,51 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка: {context.error}", exc_info=True)
 
 
-async def watchdog(app):
-    """Сторож связи с Telegram.
+class WatchedRequest(HTTPXRequest):
+    """Соединение для опроса, отмечающее время последнего ответа.
 
-    На нестабильном канале соединение обрывается молча: библиотека остаётся
-    ждать ответа, который не придёт, опрос встаёт, бот перестаёт отвечать -
-    и ни ошибки, ни падения при этом нет. Docker такое не чинит: контейнер
-    формально жив.
+    Библиотека держит два раздельных набора соединений: одни для опроса
+    getUpdates, другие для всего остального. Это как две телефонные линии
+    в одну контору. Линия опроса обрывается молча - библиотека остаётся
+    ждать ответа, который не придёт, - а справочная при этом отвечает.
 
-    Поэтому раз в несколько минут дёргаем Telegram отдельным коротким
-    запросом. Три неудачи подряд - выходим с ошибкой, и Docker поднимает
-    контейнер заново с чистыми соединениями.
+    Поэтому следить надо именно за той линией, которая ломается. Здесь и
+    отмечается каждый успешный ответ на опрос.
     """
-    failures = 0
+
+    last_ok = 0.0
+
+    async def do_request(self, *args, **kwargs):
+        result = await super().do_request(*args, **kwargs)
+        WatchedRequest.last_ok = time.monotonic()
+        return result
+
+
+async def watchdog(app):
+    """Сторож опроса Telegram.
+
+    Здоровый опрос отвечает раз в десяток секунд без перерыва. Если ответов
+    нет дольше положенного - канал встал, и никакие проверки связи этого не
+    покажут: бот молчит, а Telegram отвечает.
+
+    Прежний сторож звонил в справочную командой get_me, слышал «алло» и
+    обнулял счётчик неудач. Поэтому бот однажды молчал одиннадцать часов
+    подряд при нулевом счётчике обращений - сторож всё это время был
+    доволен.
+    """
+    WatchedRequest.last_ok = time.monotonic()
     while True:
         await asyncio.sleep(WATCHDOG_INTERVAL)
-        try:
-            await app.bot.get_me(read_timeout=20, connect_timeout=20)
-            if failures:
-                logger.info("Сторож: связь с Telegram восстановилась")
-            failures = 0
-        except Exception as exc:
-            failures += 1
-            logger.warning(
-                f"Сторож: Telegram не отвечает ({type(exc).__name__}), "
-                f"неудача {failures} из {WATCHDOG_FAILURES}"
-            )
-            if failures >= WATCHDOG_FAILURES:
-                logger.error("Сторож: связь потеряна, перезапускаю бота")
-                # Именно жёсткий выход: обычная остановка попробует корректно
-                # закрыть те самые зависшие соединения и повиснет вместе с ними.
-                os._exit(1)
+        silence = time.monotonic() - WatchedRequest.last_ok
+        if silence < WATCHDOG_SILENCE:
+            continue
+        logger.error(
+            f"Сторож: опрос молчит {int(silence)} с при пороге {WATCHDOG_SILENCE} с, "
+            "перезапускаю бота"
+        )
+        # Именно жёсткий выход: обычная остановка попробует корректно закрыть
+        # те самые зависшие соединения и повиснет вместе с ними.
+        os._exit(1)
 
 
 def build_app():
@@ -270,15 +286,42 @@ def build_app():
         .read_timeout(NET_TIMEOUT)
         .write_timeout(NET_TIMEOUT)
         .pool_timeout(NET_TIMEOUT)
-        .get_updates_connect_timeout(NET_TIMEOUT)
-        .get_updates_write_timeout(NET_TIMEOUT)
-        .get_updates_pool_timeout(NET_TIMEOUT)
-        .get_updates_read_timeout(NET_TIMEOUT + 20)
     )
 
     if TELEGRAM_PROXY:
-        builder = builder.proxy(TELEGRAM_PROXY).get_updates_proxy(TELEGRAM_PROXY)
+        builder = builder.proxy(TELEGRAM_PROXY)
         logger.info("Telegram: работаю через прокси")
+
+    # Соединение для опроса собирается вручную: только так к нему можно
+    # приставить сторожа. Настройки те же, что были у builder-а, поэтому
+    # поведение не меняется - меняется лишь то, что теперь видно, жив ли
+    # опрос. Библиотека запрещает задавать и своё соединение, и отдельные
+    # лимиты ожидания для опроса, поэтому вторые убраны выше.
+    updates_settings = dict(
+        connection_pool_size=1,
+        connect_timeout=NET_TIMEOUT,
+        write_timeout=NET_TIMEOUT,
+        pool_timeout=NET_TIMEOUT,
+        read_timeout=NET_TIMEOUT + 20,
+    )
+    if TELEGRAM_PROXY:
+        updates_settings["proxy"] = TELEGRAM_PROXY
+    try:
+        builder = builder.get_updates_request(WatchedRequest(**updates_settings))
+        logger.info(f"Сторож: слежу за опросом, порог молчания {WATCHDOG_SILENCE} с")
+    except Exception as exc:
+        # Запасной путь на случай, если библиотека сменит устройство. Бот
+        # поднимется как раньше, просто без присмотра за опросом.
+        logger.warning(f"Сторож: не смог приставить наблюдателя к опросу ({exc})")
+        builder = (
+            builder
+            .get_updates_connect_timeout(NET_TIMEOUT)
+            .get_updates_write_timeout(NET_TIMEOUT)
+            .get_updates_pool_timeout(NET_TIMEOUT)
+            .get_updates_read_timeout(NET_TIMEOUT + 20)
+        )
+        if TELEGRAM_PROXY:
+            builder = builder.get_updates_proxy(TELEGRAM_PROXY)
 
     if TELEGRAM_BASE_URL:
         base = TELEGRAM_BASE_URL.rstrip("/")
@@ -312,8 +355,8 @@ def build_app():
         logger.info("Монитор Авито: фоновая задача запущена")
         application.create_task(watchdog(application))
         logger.info(
-            f"Сторож связи: проверка раз в {WATCHDOG_INTERVAL} с, "
-            f"перезапуск после {WATCHDOG_FAILURES} неудач подряд"
+            f"Сторож опроса: смотрит раз в {WATCHDOG_INTERVAL} с, "
+            f"перезапуск после {WATCHDOG_SILENCE} с молчания"
         )
 
     app.post_init = _post_init
