@@ -267,6 +267,21 @@ _cffi_session = None
 LAST_TRACE: list[str] = []
 
 
+def proxy_label() -> str:
+    """Через что ходим, без логина и пароля.
+
+    Нужно, чтобы отличить «прокси плохой» от «прокси не подключился». При
+    опечатке в .env бот молча пойдёт напрямую, получит ту же капчу, и
+    причину будет не отличить.
+    """
+    if not AVITO_PROXY:
+        return "напрямую, прокси не задан"
+    scheme, _, rest = AVITO_PROXY.partition("://")
+    if not rest:                                  # схему не написали
+        scheme, rest = "?", AVITO_PROXY
+    return f"{scheme}://{rest.rsplit('@', 1)[-1]}"  # хвост после @ - без пароля
+
+
 def _proxies() -> dict | None:
     return {"http": AVITO_PROXY, "https": AVITO_PROXY} if AVITO_PROXY else None
 
@@ -717,7 +732,8 @@ async def self_test(query: str = "перфоратор") -> str:
     try:
         html = await fetch_html(url)
     except AvitoBlocked as exc:
-        return (f"🚫 Авито блокирует запросы: {exc}\n\n"
+        return (f"🚫 Авито блокирует запросы: {exc}\n"
+                f"ходили: {proxy_label()}\n\n"
                 f"Лечится сменой IP или прокси (переменная AVITO_PROXY).")
     except Exception as exc:
         return f"❌ Не достучались до Авито: {type(exc).__name__}: {exc}"
@@ -729,6 +745,7 @@ async def self_test(query: str = "перфоратор") -> str:
     out = [
         f"🔍 Тест по запросу «{query}»",
         f"рукопожатие: {'Chrome через curl_cffi' if USE_CFFI else 'httpx'}",
+        f"ходили: {proxy_label()}",
         f"страница получена: {len(html):,} символов".replace(",", " "),
         f"через JSON: {len(via_json)} карточек",
         f"через разметку: {len(via_dom)} карточек" + ("" if BS4_AVAILABLE else " (bs4 не установлен)"),

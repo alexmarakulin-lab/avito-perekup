@@ -90,6 +90,7 @@ async def dump(query: str):
     except avito_monitor.AvitoBlocked as exc:
         print(f"🚫 Выдача не пришла: {exc}")
         print(f"рукопожатие: {'Chrome через curl_cffi' if avito_monitor.USE_CFFI else 'httpx'}")
+        print(f"ходили: {avito_monitor.proxy_label()}")
         for line in avito_monitor.LAST_TRACE:
             print(" ", line)
         print("Защита отпускает волнами - повтори команду через несколько минут.")
