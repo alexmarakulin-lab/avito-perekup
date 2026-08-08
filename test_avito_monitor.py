@@ -288,5 +288,11 @@ check("настройки: чат владельца берётся из .env, �
       am.get_owner_chat() == 777, am.get_owner_chat())
 
 print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"ПРОВАЛЕНО: {fails}"))
-os.unlink(os.environ["AVITO_DB"])
+try:
+    os.unlink(os.environ["AVITO_DB"])
+except OSError:
+    # На Windows файл базы остаётся занятым, и уборка падает уже после
+    # «ВСЁ ЗЕЛЁНОЕ» - выглядит как провал проверок, хотя это просто мусор
+    # во временной папке.
+    pass
 sys.exit(1 if fails else 0)

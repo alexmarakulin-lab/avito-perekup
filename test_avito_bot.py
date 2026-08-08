@@ -154,11 +154,20 @@ if PTB:
 
     async def post_init_runs():
         started = {"v": False}
-        def fake_create_task(coro, **kw):
+
+        def fake_create_task(self, coro, **kw):
             started["v"] = True
-            coro.close()
-        app.create_task = fake_create_task
-        await app.post_init(app)
+            coro.close()   # корутину надо закрыть, иначе Python ругнётся
+
+        # Подменяем на самом классе, а не на объекте: с версии 22 у него
+        # запрещено дописывать свойства на ходу.
+        from telegram.ext import Application
+        original = Application.create_task
+        Application.create_task = fake_create_task
+        try:
+            await app.post_init(app)
+        finally:
+            Application.create_task = original
         check("сборка: фоновый монитор стартует", started["v"])
 
     asyncio.run(post_init_runs())
@@ -176,5 +185,8 @@ check("без токена: выход с ошибкой", proc.returncode == 1,
 check("без токена: подсказка про BotFather", "BotFather" in proc.stderr, proc.stderr[:120])
 
 print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"ПРОВАЛЕНО: {fails}"))
-os.path.exists(os.environ["AVITO_DB"]) and os.unlink(os.environ["AVITO_DB"])
+try:
+    os.path.exists(os.environ["AVITO_DB"]) and os.unlink(os.environ["AVITO_DB"])
+except OSError:
+    pass   # на Windows файл базы остаётся занятым, это не провал проверок
 sys.exit(1 if fails else 0)

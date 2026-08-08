@@ -88,5 +88,8 @@ check("нарезка: ничего не потеряно",
       sum(len(p.split("\n")) for p in parts))
 
 print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"ПРОВАЛЕНО: {fails}"))
-os.path.exists(os.environ["AVITO_DB"]) and os.unlink(os.environ["AVITO_DB"])
+try:
+    os.path.exists(os.environ["AVITO_DB"]) and os.unlink(os.environ["AVITO_DB"])
+except OSError:
+    pass   # на Windows файл базы остаётся занятым, это не провал проверок
 sys.exit(1 if fails else 0)
