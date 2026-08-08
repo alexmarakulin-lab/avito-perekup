@@ -51,6 +51,44 @@ def ask_id(current: str) -> str:
         return value
 
 
+def ask_groq(current: str) -> str:
+    print("\n3. КЛЮЧ ДЛЯ КОНСУЛЬТАНТА (можно пропустить)")
+    print("   Без него монитор работает, но бот не отвечает на вопросы")
+    print("   вроде «перфоратор за 3500, брать?».")
+    print("   Бесплатно на console.groq.com, ключ начинается с gsk_")
+    print("   Нажми Enter, чтобы пропустить.")
+    if current:
+        print("   Сейчас ключ уже вписан. Enter - оставить как есть.")
+    while True:
+        value = input("\n   Ключ: ").strip()
+        if not value:
+            return current
+        if not value.startswith("gsk_"):
+            print("   Ключи Groq начинаются с gsk_. Скопировался целиком?")
+            continue
+        return value
+
+
+def ask_proxy(current: str) -> str:
+    print("\n4. ПРОКСИ ДЛЯ АВИТО (можно пропустить)")
+    print("   Нужен, если Авито отвечает капчей. Вид строки:")
+    print("   http://логин:пароль@адрес:порт")
+    print("   Нажми Enter, чтобы пропустить.")
+    if current:
+        print("   Сейчас прокси уже вписан. Enter - оставить как есть.")
+    while True:
+        value = input("\n   Прокси: ").strip()
+        if not value:
+            return current
+        if "://" not in value:
+            print("   Не хватает начала: http:// или socks5://")
+            continue
+        if "@" in value and ":" not in value.split("@", 1)[1]:
+            print("   После адреса нужен порт через двоеточие.")
+            continue
+        return value
+
+
 def put(text: str, key: str, value: str) -> str:
     """Вписывает значение в строку key=... , не трогая остальной файл."""
     line = f"{key}={value}"
@@ -78,16 +116,23 @@ def main():
 
     token = ask_token(current_value(text, "AVITO_BOT_TOKEN"))
     owner = ask_id(current_value(text, "AVITO_OWNER_ID"))
+    groq = ask_groq(current_value(text, "GROQ_API_KEY"))
+    proxy = ask_proxy(current_value(text, "AVITO_PROXY"))
 
     text = put(text, "AVITO_BOT_TOKEN", token)
     text = put(text, "AVITO_OWNER_ID", owner)
     text = put(text, "AVITO_OWNER_CHAT", owner)
+    text = put(text, "GROQ_API_KEY", groq)
+    text = put(text, "AVITO_PROXY", proxy)
 
     with open(ENV, "w", encoding="utf-8") as f:
         f.write(text)
 
     print("\n" + "=" * 60)
     print(f"  Записано. Бот номер {token.split(':')[0]}, хозяин {owner}.")
+    print(f"  Консультант: {'включён' if groq else 'выключен, ключа нет'}")
+    # Пароль от прокси не показываем: он уже был бы на скриншоте.
+    print(f"  Авито: {'через прокси' if proxy else 'напрямую, прокси нет'}")
     print("  Теперь запускай «Запустить бота».")
     print("=" * 60)
 
