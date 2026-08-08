@@ -24,6 +24,12 @@ from urllib.parse import quote
 
 import httpx
 
+import env_file
+
+# До импорта монитора: он разбирает настройки прямо при загрузке, и прокси
+# из .env должен стоять в окружении раньше.
+env_file.load()
+
 import avito_monitor
 
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

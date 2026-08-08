@@ -10,6 +10,13 @@ import os
 import sys
 import time
 
+import env_file
+
+# Читаем .env до всего остального: ниже настройки разбираются на уровне
+# модуля, и к тому времени переменные должны уже стоять. На сервере это
+# делал Docker, при запуске на своём компьютере делать некому.
+env_file.load()
+
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
@@ -23,6 +30,14 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+# httpx печатает каждый запрос вместе с адресом, а в адресе Bot API сидит
+# токен целиком: "POST https://api.telegram.org/bot8649312428:AAF.../getMe".
+# Из-за этого токен трижды попадал на скриншоты. Оставляем от неё только
+# жалобы - они без адресов.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("AVITO_BOT_TOKEN", "")
