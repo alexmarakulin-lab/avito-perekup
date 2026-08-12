@@ -18,6 +18,7 @@
     docker compose exec avito python check_avito.py probe
 """
 import asyncio
+import os
 import re
 import sys
 from urllib.parse import quote
@@ -95,13 +96,16 @@ async def dump(query: str):
         html = await avito_monitor.fetch_html(avito_monitor.build_search_url(query))
     except avito_monitor.AvitoBlocked as exc:
         print(f"🚫 Выдача не пришла: {exc}")
-        print(f"рукопожатие: {'Chrome через curl_cffi' if avito_monitor.USE_CFFI else 'httpx'}")
-        print(f"ходили: {avito_monitor.proxy_label()}")
+        print(f"чем ходили: {avito_monitor.fetch_label()}")
+        print(f"через что: {avito_monitor.proxy_label()}")
         for line in avito_monitor.LAST_TRACE:
             print(" ", line)
         print("Защита отпускает волнами - повтори команду через несколько минут.")
         return
-    path = "/data/last.html"
+    # На сервере страница ложится в общую папку /data, а дома такой нет -
+    # кладём рядом с самой программой.
+    path = "/data/last.html" if os.path.isdir("/data") else os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "last.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"страница: {len(html)} символов, сохранена в {path}")
@@ -154,16 +158,19 @@ async def urls():
 
 async def main():
     args = sys.argv[1:]
-    if args[:1] == ["probe"]:
-        await probe()
-        return
-    if args[:1] == ["urls"]:
-        await urls()
-        return
-    if args[:1] == ["dump"]:
-        await dump(" ".join(args[1:]) or "перфоратор")
-        return
-    print(await avito_monitor.self_test(" ".join(args) or "перфоратор"))
+    try:
+        if args[:1] == ["probe"]:
+            await probe()
+        elif args[:1] == ["urls"]:
+            await urls()
+        elif args[:1] == ["dump"]:
+            await dump(" ".join(args[1:]) or "перфоратор")
+        else:
+            print(await avito_monitor.self_test(" ".join(args) or "перфоратор"))
+    finally:
+        # Иначе окно браузера останется висеть после того, как проверка
+        # закончилась, и закрывать его придётся руками.
+        await avito_monitor.avito_browser.close()
 
 
 if __name__ == "__main__":

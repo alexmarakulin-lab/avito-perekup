@@ -4,3 +4,6 @@ avito.db
 venv/
 .env
 data/
+# Профиль браузера: печенья Авито и кэш. Личное и тяжёлое, в git не место.
+browser_profile/
+last.html

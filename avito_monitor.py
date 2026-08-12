@@ -37,6 +37,11 @@ try:
 except ImportError:
     CFFI_AVAILABLE = False
 
+# ...но и рукопожатия оказалось мало: страницу дорисовывает javascript, а
+# библиотека его не выполняет. Единственный способ, который Авито пропустил, -
+# настоящий видимый браузер. Подробности и замеры - в avito_browser.py.
+import avito_browser
+
 logger = logging.getLogger(__name__)
 
 # ========== НАСТРОЙКИ МОНИТОРА ==========
@@ -257,6 +262,12 @@ RETRY_DELAY = float(os.getenv("AVITO_RETRY_DELAY", "8"))
 IMPERSONATE = os.getenv("AVITO_IMPERSONATE", "chrome")
 USE_CFFI = CFFI_AVAILABLE and os.getenv("AVITO_HTTP", "cffi").lower() != "httpx"
 
+# Чем ходим за страницей. По умолчанию браузером - это единственное, что
+# Авито пропускает; замеры и разбор почему - в avito_browser.py. Прежний
+# способ никуда не делся: AVITO_FETCH=http вернёт запросы по http, если
+# защита однажды подобреет или страницы понадобятся быстрее и дешевле.
+USE_BROWSER = os.getenv("AVITO_FETCH", "browser").strip().lower() == "browser"
+
 # Разговор с Авито ведётся одной и той же сессией: в ней живут метки Qrator
 # и уже установленные соединения. Новая сессия на каждый запрос - это опять
 # незнакомец с улицы, со всеми вытекающими.
@@ -282,6 +293,13 @@ def proxy_label() -> str:
     return f"{scheme}://{rest.rsplit('@', 1)[-1]}"  # хвост после @ - без пароля
 
 
+def fetch_label() -> str:
+    """Чем именно добывали страницу. Без этого «не пришло» ничего не объясняет."""
+    if USE_BROWSER:
+        return avito_browser.label()
+    return "Chrome через curl_cffi" if USE_CFFI else "httpx"
+
+
 def _proxies() -> dict | None:
     return {"http": AVITO_PROXY, "https": AVITO_PROXY} if AVITO_PROXY else None
 
@@ -289,6 +307,8 @@ def _proxies() -> dict | None:
 async def _fetch_once(url: str) -> tuple[int, str]:
     """Один заход на страницу. Возвращает код ответа и текст."""
     global _cffi_session
+    if USE_BROWSER:
+        return await avito_browser.fetch(url)
     if USE_CFFI:
         if _cffi_session is None:
             _cffi_session = CffiSession(impersonate=IMPERSONATE, timeout=30,
@@ -731,10 +751,17 @@ async def self_test(query: str = "перфоратор") -> str:
     url = build_search_url(query)
     try:
         html = await fetch_html(url)
+    except avito_browser.BrowserUnavailable as exc:
+        return (f"❌ Браузер не поднялся: {exc}\n\n"
+                f"Без браузера Авито не читается совсем — проверено.")
     except AvitoBlocked as exc:
+        hint = ("Авито пропускает только настоящий видимый браузер. Проверь, "
+                "что окно браузера открылось: если оно закрыто или бот запущен "
+                "службой, будет ровно это." if USE_BROWSER else
+                "Сейчас ходим по http (AVITO_FETCH=http), а так Авито не пускает. "
+                "Убери эту настройку, чтобы вернуться к браузеру.")
         return (f"🚫 Авито блокирует запросы: {exc}\n"
-                f"ходили: {proxy_label()}\n\n"
-                f"Лечится сменой IP или прокси (переменная AVITO_PROXY).")
+                f"ходили: {fetch_label()}\n\n{hint}")
     except Exception as exc:
         return f"❌ Не достучались до Авито: {type(exc).__name__}: {exc}"
 
@@ -744,8 +771,8 @@ async def self_test(query: str = "перфоратор") -> str:
 
     out = [
         f"🔍 Тест по запросу «{query}»",
-        f"рукопожатие: {'Chrome через curl_cffi' if USE_CFFI else 'httpx'}",
-        f"ходили: {proxy_label()}",
+        f"чем ходили: {fetch_label()}",
+        f"через что: {proxy_label()}",
         f"страница получена: {len(html):,} символов".replace(",", " "),
         f"через JSON: {len(via_json)} карточек",
         f"через разметку: {len(via_dom)} карточек" + ("" if BS4_AVAILABLE else " (bs4 не установлен)"),
@@ -836,6 +863,9 @@ async def monitor_loop(bot):
 
         except asyncio.CancelledError:
             logger.info("Монитор Авито: остановлен")
+            # Браузер живёт всё время работы монитора, и сам он не закроется:
+            # останется висеть чужим процессом до перезагрузки компьютера.
+            await avito_browser.close()
             raise
         except Exception as exc:
             logger.error(f"Монитор Авито: сбой цикла ({exc})", exc_info=True)

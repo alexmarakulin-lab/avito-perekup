@@ -13,8 +13,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import avito_monitor as am
 
 # Проверки оффлайновые, поэтому запросы должны идти через httpx - его легко
-# подменить. curl_cffi ходит мимо подмены, прямо в сеть.
+# подменить. curl_cffi ходит мимо подмены, прямо в сеть, а браузер вдобавок
+# открыл бы окно на каждой проверке.
 am.USE_CFFI = False
+am.USE_BROWSER = False
 
 fails = []
 
@@ -210,6 +212,20 @@ async def blocked_cases():
     except am.AvitoBlocked as exc:
         check("блокировка: главная вместо выдачи распознана", "главная" in str(exc), str(exc))
 
+    # Ловушка, найденная 12.08.2026 при переводе на браузер: настоящая выдача
+    # тоже приходит с обезличенным заголовком, потому что снимок страницы
+    # делается раньше, чем javascript перепишет title. Если судить по одному
+    # заголовку, живая выдача с полусотней карточек сойдёт за подмену.
+    real = ('<html><title>Авито — Объявления на сайте Авито</title>'
+            '<body><div data-marker="item" data-item-id="9001">'
+            '<a data-marker="item-title" href="/krasnodar/p_9001"><h3>Перфоратор Bosch</h3></a>'
+            '<meta itemprop="price" content="2500"></div></body></html>')
+    check("подмена: выдача с обезличенным заголовком не считается главной",
+          not am.is_home_page(real))
+    httpx.AsyncClient = lambda *a, _r=FakeResp(200, real), **kw: FakeClient(_r)
+    got = await am.fetch_html("https://www.avito.ru/krasnodar")
+    check("подмена: такая выдача доходит до разбора", len(am.parse_search(got)) == 1)
+
     # А вот честно пустая выдача - законный ответ, на него ругаться нельзя.
     empty = ('<html><title>Перфораторы купить в Краснодаре</title>'
              '<body>Ничего не найдено</body></html>')
@@ -244,6 +260,75 @@ am.AVITO_PROXY = "socks5://45.67.89.10:18360"
 check("прокси: без логина строка не задваивается",
       am.proxy_label() == "socks5://45.67.89.10:18360", am.proxy_label())
 am.AVITO_PROXY = saved_proxy
+
+# --- добыча страницы браузером ---
+# Скрытый браузер Авито распознаёт: 12.08.2026 три варианта подряд (скрытый
+# Chromium, он же в новом режиме, настоящий Chrome скрытым) получили HTTP 429
+# и «Доступ ограничен». Видимый на том же интернете и том же адресе - 50
+# карточек. Умолчание «видимый» здесь не мелочь: если оно тихо съедет на
+# скрытый, монитор снова начнёт получать капчу, а выглядеть это будет как
+# «Авито опять забанил» - именно на таком мы уже потеряли несколько дней.
+import avito_browser as ab
+
+check("браузер: по умолчанию видимый, а не скрытый", not ab.HEADLESS)
+check("браузер: по умолчанию берётся установленный Chrome", ab.CHANNEL == "chrome", ab.CHANNEL)
+check("браузер: умеет доложить о себе", "браузер" in ab.label(), ab.label())
+
+# Профиль обязан переживать перезапуски: на чистом каждый запуск начинается
+# с капчи. Замер 12.08.2026: прогретый профиль - 49 карточек, чистый - 429.
+check("браузер: профиль лежит в постоянной папке, а не во временной",
+      ab.PROFILE_DIR and "Temp" not in ab.PROFILE_DIR, ab.PROFILE_DIR)
+
+# Заслон определяется не только по коду ответа: настоящая выдача приходила
+# и с кодом 429, и с чужим заголовком. Карточки - решающий признак.
+check("браузер: страница с карточками заслоном не считается",
+      not ab._looks_blocked(429, '<html><div data-marker="item"></div></html>'))
+check("браузер: капча без карточек распознана",
+      ab._looks_blocked(429, "<html><title>Доступ ограничен</title></html>"))
+check("браузер: пустая выдача заслоном не считается",
+      not ab._looks_blocked(200, "<html>Ничего не найдено</html>"))
+
+saved_browser_proxy = ab.PROXY
+ab.PROXY = ""
+check("браузер: без прокси настройка пустая", ab._proxy_settings() is None)
+ab.PROXY = "http://user12345:secret@45.67.89.10:8000"
+settings = ab._proxy_settings()
+check("браузер: адрес прокси отделён от логина",
+      settings["server"] == "http://45.67.89.10:8000", settings)
+check("браузер: логин и пароль разложены по полям",
+      settings["username"] == "user12345" and settings["password"] == "secret", settings)
+ab.PROXY = "socks5://45.67.89.10:18360"
+check("браузер: прокси без логина не ломается",
+      ab._proxy_settings() == {"server": "socks5://45.67.89.10:18360"}, ab._proxy_settings())
+ab.PROXY = saved_browser_proxy
+
+
+async def browser_route():
+    """Через браузер ли идём, когда так велено, и мимо ли него - когда нет."""
+    calls = []
+
+    async def fake_fetch(url):
+        calls.append(url)
+        return 200, html_json
+
+    original_fetch, ab.fetch = ab.fetch, fake_fetch
+    am.USE_BROWSER = True
+    try:
+        status, body = await am._fetch_once("https://www.avito.ru/krasnodar")
+        check("браузер: запрос уходит в браузер, а не в httpx",
+              calls == ["https://www.avito.ru/krasnodar"] and status == 200, calls)
+        check("браузер: разбор выдачи не меняется", len(am.parse_search(body)) == 3)
+        check("браузер: диагностика называет способ", "браузер" in am.fetch_label(),
+              am.fetch_label())
+    finally:
+        ab.fetch = original_fetch
+        am.USE_BROWSER = False
+
+    check("браузер: с AVITO_FETCH=http способ прежний",
+          am.fetch_label() in ("httpx", "Chrome через curl_cffi"), am.fetch_label())
+
+
+asyncio.run(browser_route())
 
 # --- очередь поисковых слов ---
 # Гнать все слова подряд - вернейший способ получить капчу, ею и кончилось
