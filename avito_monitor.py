@@ -144,6 +144,33 @@ CATEGORIES = {
             "микроволновка",
         ],
     },
+    # У техники Apple своя вилка цен. Общие 300-5000 ₽ рассчитаны на
+    # инструмент, и с ними айфон не нашёлся бы вообще: всё, что дешевле
+    # потолка, - это запчасти, копии и разводы. Поэтому у категории свои
+    # min_price и max_price, они перебивают общие.
+    "iphone": {
+        "name": "Айфоны",
+        "emoji": "📱",
+        # Ниже сорока тысяч рабочего 17 Pro не бывает - там битые, залитые,
+        # корпуса и «айфон на запчасти». Верх - примерно рыночная цена б/у:
+        # дороже искать нечего, выгоды там нет по определению.
+        "min_price": 40000,
+        "max_price": 95000,
+        "queries": [
+            "iphone 17 pro",
+        ],
+    },
+    "applewatch": {
+        "name": "Часы Apple",
+        "emoji": "⌚",
+        # Часы живут в куда более широком коридоре: старые серии уходят за
+        # семь-восемь тысяч, свежие - за сорок.
+        "min_price": 6000,
+        "max_price": 45000,
+        "queries": [
+            "apple watch",
+        ],
+    },
 }
 
 # Слова-маркеры мусора: запчасти, нерабочее, объявления о покупке и услугах.
@@ -153,7 +180,43 @@ STOP_WORDS = [
     "на запчасти", "запчасти", "не работает", "нерабоч", "куплю", "приму в дар",
     "требует ремонта", "в ремонт", "на ремонт", "услуги", "аренда", "прокат",
     "под восстановление", "на разбор", "на детали", "битый", "сломан",
+    # Услуги мастеров. На выдаче по «сплит система» их полно: «Ремонт
+    # монтаж и обслуживание кондиционеров», «Чистка заправка» - и цена у них
+    # своя, 500-3000 ₽ за работу, а не за товар. Товаром это не является,
+    # а медиану тянет вниз сильнее всего остального.
+    # Слово "монтаж" заодно ловит "демонтаж" - это тоже услуга.
+    "монтаж", "обслуживание", "заправка", "чистка", "диагностика",
+    # Подделки и витрины магазинов. На выдаче по айфонам их больше, чем
+    # живых объявлений: копии за десять тысяч и магазинные карточки «в
+    # рассрочку». Перекупу не годится ни то, ни другое, а медиану они
+    # ломают в обе стороны сразу.
+    #
+    # "рассрочка" сюда попала сознательно, хотя изредка так пишут и в
+    # честных объявлениях: на выдаче по технике это почти всегда магазин.
+    "копия", "реплика", "муляж", "под заказ", "рассрочка",
 ]
+
+# Слова короче трёх букв («бу», «и», «с») ничего не различают: они есть в
+# половине заголовков, и в фильтре от них один вред.
+MIN_WORD_LEN = 3
+
+# Одно и то же название, написанное двумя алфавитами. Приводим к латинице,
+# потому что в запросах она короче и однозначнее.
+#
+# Слово «про» сюда сознательно НЕ попало, хотя и просится: в русском это
+# ещё и предлог. Превратив его в pro, мы получили бы совпадение на любом
+# «продам про запас», а для попадания в фильтр хватает одного слова.
+# Различают товар всё равно «айфон» и «вотч», а не «про».
+SYNONYMS = {
+    "айфон": "iphone", "айфона": "iphone", "айфоны": "iphone",
+    "айфонов": "iphone", "айфоне": "iphone",
+    "эппл": "apple", "эпл": "apple", "аппл": "apple",
+    "вотч": "watch", "воч": "watch",
+}
+# Голого «часы» здесь тоже нет и быть не должно. Превратив его в watch, мы
+# бы засчитали за Apple Watch любые часы - и Casio, и настенные: для
+# совпадения хватает одного слова, а «watch» как раз им и стало бы.
+# «Умные часы Эппл вотч» находятся и без этого, по слову «эппл».
 
 
 class AvitoBlocked(Exception):
@@ -343,11 +406,15 @@ def _headers() -> dict:
     }
 
 
-def build_search_url(query: str) -> str:
+def build_search_url(query: str, category: str | None = None) -> str:
     # s=104 - сортировка "сначала новые", это ключевое: свежие лоты живут минуты.
+    #
+    # Вилка цен уходит прямо в адрес: это не только отбор, но и экономия -
+    # чем уже коридор, тем меньше чужого приезжает вместе со страницей.
+    low, high = price_band(category if category is not None else category_of(query))
     return (
         f"https://www.avito.ru/{AVITO_REGION}"
-        f"?q={quote(query)}&pmax={MAX_PRICE}&pmin={MIN_PRICE}"
+        f"?q={quote(query)}&pmax={high}&pmin={low}"
         f"&s=104&localPriority=1"
     )
 
@@ -572,9 +639,85 @@ def take_queries() -> list:
     return doubled[start:start + QUERIES_PER_CYCLE]
 
 
+def category_of(query: str) -> str | None:
+    """Из какой категории это поисковое слово. Нужно, чтобы подобрать вилку цен."""
+    for key, cat in CATEGORIES.items():
+        if query in cat["queries"]:
+            return key
+    return None
+
+
+def price_band(category: str | None = None) -> tuple[int, int]:
+    """Вилка цен категории, а если своей нет - общая.
+
+    Одной вилки на всё не хватает: инструмент ищется в 300-5000 ₽, айфон -
+    в 40000-95000 ₽. С общим потолком айфоны просто не находились бы, а с
+    айфоновым в инструмент полез бы весь строительный рынок.
+    """
+    cat = CATEGORIES.get(category or "", {})
+    return int(cat.get("min_price", MIN_PRICE)), int(cat.get("max_price", MAX_PRICE))
+
+
 def is_junk(title: str) -> bool:
     low = title.lower()
     return any(word in low for word in STOP_WORDS)
+
+
+def _normalize(text: str) -> str:
+    """Приводит строку к единому виду: строчные буквы, «ё» как «е», вместо
+    любых знаков препинания - пробел.
+
+    Нужно, чтобы «Сплит-система», «сплит система» и «СПЛИТ/СИСТЕМА» после
+    обработки выглядели одинаково. Дефис на Авито ставят как попало, и без
+    этого половина нормальных объявлений не совпала бы с запросом.
+    """
+    low = text.lower().replace("ё", "е")
+    cleaned = re.sub(r"[^0-9a-zа-я]+", " ", low).strip()
+    # Одну и ту же вещь на Авито пишут и латиницей, и кириллицей: «iPhone 17
+    # Pro» и «Айфон 17 Про» - это одно объявление по смыслу и два разных
+    # набора букв для программы. Без приведения к общему виду запрос
+    # «iphone 17 pro» выбросил бы половину живой выдачи как чужой товар.
+    return " ".join(SYNONYMS.get(word, word) for word in cleaned.split())
+
+
+def _stem(word: str) -> str:
+    """Грубая основа слова: отрезаем два последних знака - окончание.
+
+    Настоящая морфология здесь ни к чему и стоила бы отдельной библиотеки.
+    «Кондиционер», «кондиционера», «кондиционеры» дают одну основу
+    «кондиционе», и она находится внутри любой из этих форм. Короче
+    четырёх знаков не режем: от «ушм» после обрезки не осталось бы ничего,
+    а совпадать с чем попало такой огрызок начал бы моментально.
+    """
+    return word[:max(4, len(word) - 2)]
+
+
+def query_stems(query: str) -> list[str]:
+    """Значимые слова запроса, приведённые к основам."""
+    return [_stem(word) for word in _normalize(query).split()
+            if len(word) >= MIN_WORD_LEN]
+
+
+def matches_query(title: str, query: str) -> bool:
+    """Про то ли объявление, что мы искали.
+
+    Авито ищет нестрого и на «сплит система» подмешивает соседей: были и
+    «Пластиковые окна двери от производителя» за 1250 ₽, и услуги мастеров.
+    Все они проходили фильтр мусорных слов, ложились в базу с этим самым
+    запросом и утягивали медиану вниз - после чего настоящие дешёвые
+    находки переставали выглядеть дешёвыми.
+
+    Достаточно **одного** совпавшего слова запроса, а не всех сразу.
+    Требовать все - значит выбросить нормальный товар: по «шуруповерт
+    аккумуляторный» половина объявлений называется просто «Шуруповерт
+    Makita 18V», по «кондиционер бу» - «Кондиционер Ballu». Одного слова
+    хватает: мусор из чужих категорий не содержит ни одного.
+    """
+    stems = query_stems(query)
+    if not stems:            # запрос из одних коротких слов - фильтровать нечем
+        return True
+    low = _normalize(title)
+    return any(stem in low for stem in stems)
 
 
 # ========== СТАТИСТИКА ==========
@@ -597,7 +740,8 @@ def save_items(category: str, query: str, items: list) -> list:
 
     Мусор (запчасти, нерабочее, объявления о покупке) в базу не попадает:
     иначе лоты по 900 ₽ утянут медиану вниз и настоящие находки перестанут
-    выглядеть дешёвыми.
+    выглядеть дешёвыми. По той же причине не попадает и чужой товар,
+    который Авито подмешивает в выдачу по нестрогому совпадению.
     """
     fresh = []
     now = time.time()
@@ -606,6 +750,8 @@ def save_items(category: str, query: str, items: list) -> list:
             if not item["item_id"] or not item["price"]:
                 continue
             if is_junk(item["title"]):
+                continue
+            if not matches_query(item["title"], query):
                 continue
             exists = conn.execute(
                 "SELECT 1 FROM items WHERE item_id = ?", (item["item_id"],)
@@ -622,12 +768,17 @@ def save_items(category: str, query: str, items: list) -> list:
     return fresh
 
 
-def rate_deal(item: dict, query: str) -> tuple[bool, str]:
+def rate_deal(item: dict, query: str, category: str | None = None) -> tuple[bool, str]:
     """Решает, стоит ли будить владельца из-за этого лота."""
     price = item["price"]
-    if price > MAX_PRICE or price < MIN_PRICE:
+    low, high = price_band(category if category is not None else category_of(query))
+    if price > high or price < low:
         return False, ""
     if is_junk(item["title"]):
+        return False, ""
+    # Вторая застава: в базу такое уже не попадает, но будить владельца
+    # чужим товаром нельзя и при прямом вызове - например из бота.
+    if not matches_query(item["title"], query):
         return False, ""
 
     median, sample = median_price(query)
@@ -780,10 +931,28 @@ async def self_test(query: str = "перфоратор") -> str:
     ]
     if not items:
         out.append("⚠️ Ноль карточек. Авито сменил вёрстку — нужно поправить парсер.")
-    else:
-        out.append("Первые находки:")
-        for item in items[:5]:
-            out.append(f"  • {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+        return "\n".join(out)
+
+    # Отдельно показываем отсеянное. Авито ищет нестрого и подмешивает
+    # чужой товар и услуги мастеров; без этого списка не видно, режет ли
+    # фильтр лишнее — а режет он то, по чему потом считается медиана.
+    good, dropped = [], []
+    for item in items:
+        if is_junk(item["title"]) or not matches_query(item["title"], query):
+            dropped.append(item)
+        else:
+            good.append(item)
+
+    out.append(f"подходит запросу: {len(good)} из {len(items)}")
+    out.append("")
+    out.append("Первые находки:")
+    for item in good[:5]:
+        out.append(f"  • {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+    if dropped:
+        out.append("")
+        out.append("Отсеяно как не то:")
+        for item in dropped[:5]:
+            out.append(f"  ✗ {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
     return "\n".join(out)
 
 
@@ -812,7 +981,7 @@ async def monitor_loop(bot):
             found_total = 0
             for cat_key, query in take_queries():
                 try:
-                    html = await fetch_html(build_search_url(query))
+                    html = await fetch_html(build_search_url(query, cat_key))
                 except AvitoBlocked as exc:
                     backoff = min(backoff * 2 or 300, 3600)
                     logger.warning(f"Монитор Авито: {exc}. Пауза {backoff} с")
@@ -834,7 +1003,7 @@ async def monitor_loop(bot):
                 found_total += len(fresh)
 
                 for item in fresh:
-                    good, note = rate_deal(item, query)
+                    good, note = rate_deal(item, query, cat_key)
                     if not good:
                         continue
                     try:
@@ -888,10 +1057,18 @@ async def cmd_avito(update, context):
     # Сколько ждать, пока очередь обойдёт все слова и вернётся к первому.
     sweep_min = cycle_min * -(-queries // per_cycle)
 
+    # Вилка у каждой категории своя, одним числом её уже не показать:
+    # инструмент ищется в 300-5000 ₽, айфоны - в 40000-95000 ₽.
+    bands = []
+    for key, cat in CATEGORIES.items():
+        low, high = price_band(key)
+        bands.append(f"{cat['emoji']} {cat['name']}: "
+                     f"{low:,}–{high:,} ₽".replace(",", " "))
+
     await update.message.reply_text(
         f"{'🟢 Монитор работает' if is_enabled() else '⚪️ Монитор выключен'}\n\n"
-        f"Регион: {AVITO_REGION}\n"
-        f"Потолок закупки: {MAX_PRICE:,} ₽".replace(",", " ") + "\n"
+        f"Регион: {AVITO_REGION}\n\n"
+        + "\n".join(bands) + "\n\n"
         f"Категорий: {len(CATEGORIES)}, запросов: {queries}\n"
         f"За круг: {per_cycle} слов, ~{cycle_min} мин\n"
         f"Полный обход всех слов: ~{sweep_min} мин\n\n"

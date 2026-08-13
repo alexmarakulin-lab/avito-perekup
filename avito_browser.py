@@ -153,12 +153,22 @@ async def _ensure_page():
     except Exception as exc:
         await _shutdown_playwright()
         first = str(exc).splitlines()[0][:150]
-        raise BrowserUnavailable(
-            f"{first}\n"
-            f"Если написано side-by-side - не хватает системной библиотеки "
-            f"встроенному браузеру; помогает установка обычного Chrome. "
-            f"Если spawn UNKNOWN - окно открыть негде: запускай бота двойным "
-            f"щелчком, а не через службу.") from exc
+        # Папку профиля Chrome занимает целиком и никого больше в неё не
+        # пускает. Ошибка при этом приходит невнятная - «target has been
+        # closed», - и без подсказки её не связать с уже открытым окном.
+        if "has been closed" in first or "ProcessSingleton" in str(exc):
+            hint = ("профиль браузера занят. Обычно это второе окно бота или "
+                    "браузер, оставшийся от прошлой проверки. Закрой лишние окна "
+                    "браузера бота и повтори.")
+        elif "side-by-side" in str(exc):
+            hint = ("встроенному браузеру не хватает системной библиотеки. "
+                    "Помогает установка обычного Chrome.")
+        elif "spawn UNKNOWN" in str(exc):
+            hint = ("окно открыть негде: запускай бота двойным щелчком, "
+                    "а не через службу или удалённую консоль.")
+        else:
+            hint = "браузер не запустился."
+        raise BrowserUnavailable(f"{hint}\n({first})") from exc
 
     _context.set_default_navigation_timeout(NAV_TIMEOUT)
     await _context.add_init_script(STEALTH)

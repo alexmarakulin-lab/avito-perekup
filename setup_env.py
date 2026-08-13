@@ -5,6 +5,7 @@
 сохранить не туда или не сохранить вовсе, и это молча. Здесь пользователь
 только отвечает на вопросы, а в файл пишет программа.
 """
+import getpass
 import os
 import re
 import shutil
@@ -12,6 +13,29 @@ import shutil
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV = os.path.join(HERE, ".env")
 SAMPLE = os.path.join(HERE, ".env.example")
+
+
+def secret_input(prompt: str) -> str:
+    """Спрашивает секрет, не печатая его на экран.
+
+    Прежде вопросник показывал вписанное как обычный текст, и оно тут же
+    попадало на скриншот: так утёк токен бота (трижды) и ключ Groq. Пароль
+    надёжен ровно до первого снимка экрана.
+
+    Буквы при вводе не видны совсем - ни точек, ни звёздочек. Так устроены
+    все пароли в командной строке, и это сбивает с толку, поэтому про это
+    сказано прямо в подсказке. Вставка правой кнопкой мыши работает как
+    обычно, просто вставленное остаётся невидимым.
+    """
+    try:
+        return getpass.getpass(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        raise
+    except Exception:
+        # Редкие консоли скрытый ввод не поддерживают. Остаться совсем без
+        # настройки хуже, чем показать строку, - но предупредим об этом.
+        print("   (эта консоль не умеет прятать ввод, строка будет видна)")
+        return input(prompt).strip()
 
 
 def ask_token(current: str) -> str:
@@ -22,8 +46,9 @@ def ask_token(current: str) -> str:
     if current:
         print(f"   Сейчас вписан токен бота номер {current.split(':')[0]}.")
         print("   Нажми Enter, чтобы оставить его.")
+    print("   Набранное показано не будет - так и задумано.")
     while True:
-        value = input("\n   Токен: ").strip()
+        value = secret_input("\n   Токен: ")
         if not value and current:
             return current
         if ":" not in value or not value.split(":")[0].isdigit():
@@ -59,8 +84,9 @@ def ask_groq(current: str) -> str:
     print("   Нажми Enter, чтобы пропустить.")
     if current:
         print("   Сейчас ключ уже вписан. Enter - оставить как есть.")
+    print("   Набранное показано не будет - так и задумано.")
     while True:
-        value = input("\n   Ключ: ").strip()
+        value = secret_input("\n   Ключ: ")
         if not value:
             return current
         if not value.startswith("gsk_"):
@@ -76,8 +102,11 @@ def ask_proxy(current: str) -> str:
     print("   Нажми Enter, чтобы пропустить.")
     if current:
         print("   Сейчас прокси уже вписан. Enter - оставить как есть.")
+    # В строке прокси пароль идёт прямо внутри адреса, так что она такой же
+    # секрет, как токен.
+    print("   Набранное показано не будет - так и задумано.")
     while True:
-        value = input("\n   Прокси: ").strip()
+        value = secret_input("\n   Прокси: ")
         if not value:
             return current
         if "://" not in value:

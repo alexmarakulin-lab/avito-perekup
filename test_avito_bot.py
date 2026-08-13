@@ -90,15 +90,26 @@ async def buttons():
     check("состояние после «Выключить» — монитор остановлен",
           avito_monitor.is_enabled() is False)
 
-    # Свободный текст уходит консультанту. Ключа Groq в тестах нет,
-    # значит должен прийти внятный отказ, а не молчание или трейсбек.
+    # Свободный текст уходит консультанту. Проверяем отказ без ключа: должно
+    # прийти внятное объяснение, а не молчание или трейсбек.
+    #
+    # Ключ убирается принудительно. Раньше проверка полагалась на то, что в
+    # окружении его просто нет, - и развалилась в тот день, когда ключ
+    # наконец вписали в .env: бот его подхватывает при импорте. Проверка,
+    # зависящая от чужих настроек, рано или поздно врёт, а эта вдобавок
+    # полезла бы в сеть.
     import resale_expert
     resale_expert._last_call.clear()
-    unknown = FakeUpdate("перфоратор за 3500, брать?", 777)
-    await avito_bot.on_button(unknown, FakeContext())
-    joined = " ".join(unknown.message.replies)
-    check("свободный текст: уходит консультанту", bool(unknown.message.replies), joined)
-    check("свободный текст: без ключа честно сообщает", "GROQ_API_KEY" in joined, joined[:90])
+    saved_key, resale_expert.GROQ_API_KEY = resale_expert.GROQ_API_KEY, ""
+    try:
+        unknown = FakeUpdate("перфоратор за 3500, брать?", 777)
+        await avito_bot.on_button(unknown, FakeContext())
+        joined = " ".join(unknown.message.replies)
+        check("свободный текст: уходит консультанту", bool(unknown.message.replies), joined)
+        check("свободный текст: без ключа честно сообщает",
+              "GROQ_API_KEY" in joined, joined[:90])
+    finally:
+        resale_expert.GROQ_API_KEY = saved_key
 
     unknown2 = FakeUpdate("а стиралка?", 777)
     await avito_bot.on_button(unknown2, FakeContext())
