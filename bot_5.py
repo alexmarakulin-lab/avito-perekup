@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import logging
 import asyncio
+import math
+import re
 import time
 import io
 import httpx
@@ -33,6 +35,10 @@ TYPING_INTERVAL = 4
 RATE_LIMIT_SECONDS = 3   # УВЕЛИЧЕНО с 2 до 3 - защита от спама
 MAX_PDF_CHARS = 4000     # СНИЖЕНО с 6000 до 4000 - экономия токенов
 MAX_TOKENS = 1024        # СНИЖЕНО с 2048 до 1024 - вдвое меньше расхода
+KADASTR_TIMEOUT = 20     # таймаут запросов к НСПД / ПКК Росреестра
+# nspd.gov.ru и pkk.rosreestr.ru живут на сертификатах Минцифры. Если ловишь SSLError -
+# поставь корневой сертификат Минцифры в систему; отключать проверку - крайний случай.
+KADASTR_VERIFY_SSL = True
 # ================================
 
 logging.basicConfig(
@@ -107,6 +113,15 @@ Hefeweizen, 23 л, ABV 4.2-4.4%, OG 1.043-1.045, FG ~1.011, IBU 11-12, EBC ~8.
 ПРОФИЛЬ: нагреть воду до 48 C, засыпать солод -> 45 C 15мин (ферулиновая!) -> 62 C 30мин -> 72 C 30мин + йодный тест -> 78 C 10мин -> промывка 76-78 C ~16л.
 БРОЖЕНИЕ: 18-19 C дни 1-3, 20-21 C дни 4-7, FG стабильна 48ч -> разлив.
 ПРАЙМЕР: 6.5 г/л декстрозы (обычные бутылки), 7.0 г/л (вайценовые). Выдержка 20-22 C 14 дней.""",
+
+    "land": """== ЗЕМЕЛЬНЫЕ УЧАСТКИ: ПОКУПКА И ПРОВЕРКА ==
+Ты оцениваешь участок как перекупщик, а не как риелтор продавца: ищешь причины НЕ покупать.
+ЮРИДИКА: береговая полоса 20 м (ст. 6 ВК РФ) в собственность не оформляется никогда. Водоохранная зона рек: 50 м (до 10 км длины), 100 м (10-50 км), 200 м (свыше 50 км) - строить можно, выгребная яма нельзя. Зона затопления (ЗОУИТ, ст. 67.1 ВК РФ п.6) - строительство жилья ЗАПРЕЩЕНО, ипотеки и страховки не будет. Наложение на земли лесного фонда - в предгорьях массово.
+ДОКУМЕНТЫ: категория "земли населённых пунктов" + ВРИ ИЖС/ЛПХ приусадебный = дом регистрируется. "Земли сельхозназначения" вне населённого пункта = дом не зарегистрировать. Проверять: выписка ЕГРН об объекте, межевание (границы установлены), обременения, аресты, срок владения продавца.
+СЕТИ: льготное техприсоединение 550 руб. работает при опоре в пределах 300 м, дальше от 300 тыс. Газ в горных сёлах Краснодарского края отсутствует и не планируется.
+ЦЕНЫ по предгорьям Краснодарского края (тыс. руб/сотка, ЛПХ и ИЖС без коммуникаций): Северский р-н 40-90; Горячий Ключ 25-60; Апшеронский р-н 8-35; Мостовский р-н 8-30. Цены на агрегаторах завышены на 20-40%.
+РИСКИ МЕСТНОСТИ: паводки на Пшехе, Псекупсе, Курджипсе (подъём 3-5 м за ночь), оползни на склонах Апшеронского района, зимой непроезжие грунтовки, в Мезмае и Гуамке часть земель в границах памятников природы - застройка запрещена.
+Никогда не подтверждай "хороший участок" без данных ЕГРН. Всегда называй конкретную проверку, которую надо сделать.""",
 }
 
 # Ключевые слова для определения нужного модуля
@@ -125,6 +140,10 @@ MODULE_KEYWORDS = {
                 "колонн", "флегм", "ректификац"],
     "recipe_weizen": ["ur-weizen", "ur weizen", "weizen", "вайцен", "пшеничн", "kurpfalz",
                       "мой рецепт", "ферулиновая"],
+    "land": ["участок", "участка", "соток", "сотка", "кадастр", "егрн", "росреестр", "ижс",
+             "лпх", "снт", "днп", "межеван", "зоуит", "водоохран", "затоплен", "подтоплен",
+             "лесной фонд", "земл", "авито", "перекуп", "пшеха", "псекупс", "курджипс",
+             "апшеронск", "мостовск", "северск", "горячий ключ", "росреестра"],
 }
 
 
@@ -287,6 +306,26 @@ SECTION_TEXTS = {
         "Выдержка: 20-22 C, 14 дней\n\n"
         "Есть вопросы по рецепту? Задавай!"
     ),
+
+    "🏞 Участок": (
+        "🏞 ПРОВЕРКА ЗЕМЕЛЬНОГО УЧАСТКА\n\n"
+        "Пришли кадастровый номер - подниму данные ЕГРН и скажу, что не так.\n"
+        "Формат: 23:02:0209000:1629\n\n"
+        "Ещё лучше - скопируй объявление целиком (описание + цена + площадь). "
+        "Тогда посчитаю цену за сотку, сравню с рынком района "
+        "и подсвечу опасные формулировки продавца.\n\n"
+        "Что проверяю автоматически:\n"
+        "- категория земель и ВРИ (можно ли построить дом)\n"
+        "- площадь и кадастровая стоимость против цены продавца\n"
+        "- цена за сотку против ориентира по району\n"
+        "- «без документов», «по доверенности», «не межеван» и прочие маркеры\n\n"
+        "Что придётся глянуть руками (дам прямые ссылки):\n"
+        "- зона затопления/подтопления - при ней жильё строить запрещено\n"
+        "- водоохранная зона и береговая полоса 20 м\n"
+        "- наложение на земли лесного фонда\n"
+        "- собственник и обременения - только выписка ЕГРН\n\n"
+        "Команда: /uchastok 23:02:0209000:1629"
+    ),
 }
 
 conversation_history: dict = {}
@@ -303,6 +342,7 @@ def get_main_keyboard():
         [KeyboardButton("📋 Документация"), KeyboardButton("🍺 Пивоварение")],
         [KeyboardButton("🥃 Дистилляция"), KeyboardButton("🌾 Рецепты браг")],
         [KeyboardButton("🍋 Ur-Weizen"), KeyboardButton("🌐 Новости")],
+        [KeyboardButton("🏞 Участок")],
         [KeyboardButton("🔄 Сброс истории")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
@@ -342,6 +382,318 @@ async def search_news(query: str) -> str:
     except Exception as e:
         logger.warning(f"Ошибка поиска новостей: {e}")
         return ""
+
+
+# ========== ПРОВЕРКА ЗЕМЕЛЬНЫХ УЧАСТКОВ ==========
+
+CADASTRAL_RE = re.compile(r"\b(\d{2}:\d{2}:\d{6,7}:\d{1,7})\b")
+PRICE_RE = re.compile(r"(\d[\d\s ]{4,})\s*(?:₽|руб|р\.)", re.IGNORECASE)
+AREA_RE = re.compile(r"(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:сот|соток|сотки|сотка)", re.IGNORECASE)
+
+# Ориентиры рынка: тыс. руб за сотку, ЛПХ/ИЖС без коммуникаций
+LAND_PRICE_REF = [
+    (("северск", "убинск", "крепостн", "планческ", "ставропольск", "азовск", "дербентск"),
+     "Северский р-н", 40, 90),
+    (("горячий ключ", "фанагорийск", "безымянн", "кутаис", "пятигорск", "саратовск"),
+     "Горячий Ключ", 25, 60),
+    (("апшеронск", "черниговск", "нижегородск", "кубанск", "отдалённ", "отдаленн",
+      "маратук", "терзиян", "хадыженск", "мезмай", "гуамк"),
+     "Апшеронский р-н", 8, 35),
+    (("мостовск", "псебай", "никитино", "баговск", "бесленеевск", "ходзь", "бурный"),
+     "Мостовский р-н", 8, 30),
+]
+
+# Формулировки в объявлении, за которыми обычно стоит проблема
+RISK_PHRASES = {
+    "без документов": "документов нет - сделки не будет",
+    "по доверенности": "продажа по доверенности - риск отзыва",
+    "не межеван": "границы не установлены, нужен кадастровый инженер",
+    "границы не установлены": "нужно межевание за свой счёт",
+    "документы в процессе": "права ещё не зарегистрированы",
+    "оформляем": "права ещё не зарегистрированы",
+    "садовая книжка": "не собственность, а членство в СНТ",
+    "членская книжка": "не собственность, а членство в СНТ",
+    "сельхозназначен": "жилой дом на сельхозземле не зарегистрировать",
+    "пай": "земельная доля, а не участок - выделять отдельно",
+    "аренда": "аренда, а не собственность",
+    "срочно": "давление на скорость - типовой приём",
+    "торг": "цена изначально завышена",
+}
+
+# Ключи ответа ЕГРН у НСПД и ПКК называются по-разному - ищем по любому из списка
+FIELD_ALIASES = {
+    "address": ("readable_address", "address", "adress"),
+    "area": ("area_value", "specified_area", "declared_area", "area"),
+    "category": ("land_record_category_type", "category_type", "category"),
+    "permitted_use": ("permitted_use_established_by_document", "util_by_doc",
+                      "permitted_use_name", "utilization"),
+    "cost": ("cost_value", "cad_cost", "cadastral_cost"),
+    "status": ("status", "land_record_status", "statecd"),
+    "reg_date": ("land_record_reg_date", "date_create", "cc_date_entering"),
+}
+
+
+def find_cadastral_numbers(text: str) -> list:
+    """Вытаскивает кадастровые номера из произвольного текста объявления."""
+    seen = []
+    for cn in CADASTRAL_RE.findall(text):
+        if cn not in seen:
+            seen.append(cn)
+    return seen
+
+
+def parse_listing(text: str) -> dict:
+    """Достаёт из текста объявления цену, площадь и опасные формулировки."""
+    result = {"price": None, "area_sot": None, "price_per_sot": None, "risks": [],
+              "text": text}
+
+    prices = [int(re.sub(r"\D", "", p)) for p in PRICE_RE.findall(text) if re.sub(r"\D", "", p)]
+    prices = [p for p in prices if 10_000 <= p <= 500_000_000]
+    if prices:
+        result["price"] = max(prices)
+
+    areas = AREA_RE.findall(text)
+    if areas:
+        try:
+            result["area_sot"] = float(areas[0].replace(",", "."))
+        except ValueError:
+            pass
+
+    if result["price"] and result["area_sot"]:
+        result["price_per_sot"] = result["price"] / result["area_sot"] / 1000
+
+    lowered = text.lower()
+    for phrase, why in RISK_PHRASES.items():
+        if phrase in lowered:
+            result["risks"].append(f"«{phrase}» - {why}")
+
+    return result
+
+
+def _pick_field(attrs: dict, key: str):
+    """Достаёт поле по любому из известных псевдонимов, обходя вложенные словари."""
+    aliases = FIELD_ALIASES[key]
+    stack = [attrs]
+    while stack:
+        current = stack.pop()
+        if not isinstance(current, dict):
+            continue
+        for alias in aliases:
+            value = current.get(alias)
+            if value not in (None, "", []):
+                return value
+        stack.extend(v for v in current.values() if isinstance(v, dict))
+    return None
+
+
+def mercator_to_wgs84(x: float, y: float) -> tuple:
+    """EPSG:3857 -> широта/долгота. И НСПД, и ПКК отдают координаты в меркаторе."""
+    lon = x / 20037508.34 * 180
+    lat = y / 20037508.34 * 180
+    lat = 180 / math.pi * (2 * math.atan(math.exp(lat * math.pi / 180)) - math.pi / 2)
+    return lat, lon
+
+
+def _center_from_geometry(feature: dict) -> tuple:
+    """Центр участка: у ПКК готовый center, у НСПД - считаем по координатам геометрии."""
+    center = feature.get("center")
+    if isinstance(center, dict) and "x" in center:
+        return float(center["x"]), float(center["y"])
+
+    geometry = feature.get("geometry") or {}
+    coords = geometry.get("coordinates")
+    flat = []
+
+    def walk(node):
+        if isinstance(node, (int, float)):
+            flat.append(float(node))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+
+    walk(coords)
+    if len(flat) >= 2:
+        xs = flat[0::2]
+        ys = flat[1::2]
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+    return None, None
+
+
+async def _fetch_nspd(client: httpx.AsyncClient, cn: str) -> dict:
+    """Основной источник - НСПД (nspd.gov.ru), наследник ПКК."""
+    url = "https://nspd.gov.ru/api/geoportal/v2/search/geoportal"
+    resp = await client.get(url, params={"query": cn, "thematicSearchId": 1})
+    resp.raise_for_status()
+    data = resp.json()
+    features = (data.get("data") or {}).get("features") or data.get("features") or []
+    if not features:
+        return {}
+    feature = features[0]
+    attrs = feature.get("properties") or feature.get("attrs") or {}
+    x, y = _center_from_geometry(feature)
+    return {"attrs": attrs, "x": x, "y": y, "source": "НСПД"}
+
+
+async def _fetch_pkk(client: httpx.AsyncClient, cn: str) -> dict:
+    """Резервный источник - старая ПКК Росреестра."""
+    url = "https://pkk.rosreestr.ru/api/features/1"
+    resp = await client.get(url, params={"text": cn, "tolerance": 1, "limit": 1})
+    resp.raise_for_status()
+    data = resp.json()
+    features = data.get("features") or []
+    if not features:
+        return {}
+    feature = features[0]
+    x, y = _center_from_geometry(feature)
+    return {"attrs": feature.get("attrs") or {}, "x": x, "y": y, "source": "ПКК Росреестра"}
+
+
+async def lookup_cadastral(cn: str) -> dict:
+    """Данные ЕГРН по кадастровому номеру. Пустой dict - ничего не нашли."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=KADASTR_TIMEOUT, headers=headers,
+                                 verify=KADASTR_VERIFY_SSL, follow_redirects=True) as client:
+        for fetch in (_fetch_nspd, _fetch_pkk):
+            try:
+                result = await fetch(client, cn)
+                if result:
+                    return result
+            except Exception as e:
+                logger.warning(f"Кадастр {cn}: {fetch.__name__} не ответил: {e}")
+    return {}
+
+
+def _market_verdict(address: str, price_per_sot: float) -> str:
+    """Сравнивает цену за сотку с ориентиром по району."""
+    if not price_per_sot:
+        return ""
+    haystack = (address or "").lower()
+    for keywords, name, low, high in LAND_PRICE_REF:
+        if any(kw in haystack for kw in keywords):
+            if price_per_sot > high:
+                mark = "ВЫШЕ РЫНКА"
+            elif price_per_sot < low:
+                mark = "НИЖЕ РЫНКА - выяснить почему"
+            else:
+                mark = "в рынке"
+            return f"Ориентир {name}: {low}-{high} тыс/сотка -> {mark}"
+    return ""
+
+
+def format_land_report(cn: str, data: dict, listing: dict) -> str:
+    """Собирает готовый отчёт для Telegram."""
+    lines = [f"🏞 УЧАСТОК {cn}", ""]
+
+    address = ""
+    if data:
+        attrs = data["attrs"]
+        address = str(_pick_field(attrs, "address") or "")
+        area = _pick_field(attrs, "area")
+        category = _pick_field(attrs, "category")
+        permitted = _pick_field(attrs, "permitted_use")
+        cost = _pick_field(attrs, "cost")
+        status = _pick_field(attrs, "status")
+
+        lines.append(f"Источник: {data['source']}")
+        if address:
+            lines.append(f"Адрес: {address}")
+        if area:
+            try:
+                area_val = float(str(area).replace(",", "."))
+                lines.append(f"Площадь: {area_val:.0f} м² ({area_val / 100:.1f} сот)")
+            except ValueError:
+                lines.append(f"Площадь: {area}")
+        if category:
+            lines.append(f"Категория: {category}")
+        if permitted:
+            lines.append(f"ВРИ: {permitted}")
+        if cost:
+            try:
+                lines.append(f"Кадастровая стоимость: {float(cost):,.0f} ₽".replace(",", " "))
+            except (ValueError, TypeError):
+                lines.append(f"Кадастровая стоимость: {cost}")
+        if status:
+            lines.append(f"Статус: {status}")
+
+        category_text = str(category or "").lower()
+        permitted_text = str(permitted or "").lower()
+        if "сельскохоз" in category_text:
+            lines.append("")
+            lines.append("❗ Земли сельхозназначения - жилой дом здесь не зарегистрировать.")
+        if permitted_text and not any(
+            k in permitted_text for k in ("жилищн", "жилой", "ижс", "личного подсобного", "лпх")
+        ):
+            lines.append("")
+            lines.append(f"❗ ВРИ не под жильё: «{permitted}». Смена ВРИ - через ПЗЗ, "
+                         "не факт что дадут.")
+    else:
+        lines.append("⚠️ ЕГРН не ответил или номер не найден.")
+        lines.append("Если номер не находится и на карте вручную - участок снят с учёта "
+                     "либо номер в объявлении чужой. Это стоп.")
+
+    if listing.get("price"):
+        lines.append("")
+        lines.append("💰 ЦЕНА")
+        lines.append(f"Запрос: {listing['price']:,} ₽".replace(",", " "))
+        if listing.get("price_per_sot"):
+            lines.append(f"За сотку: {listing['price_per_sot']:.1f} тыс ₽")
+            # район ищем в адресе ЕГРН, а если его нет - в тексте объявления
+            verdict = _market_verdict(address or listing.get("text", ""),
+                                      listing["price_per_sot"])
+            if verdict:
+                lines.append(verdict)
+        if data:
+            cost = _pick_field(data["attrs"], "cost")
+            try:
+                ratio = listing["price"] / float(cost)
+                lines.append(f"К кадастровой: x{ratio:.1f}")
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+
+    if listing.get("risks"):
+        lines.append("")
+        lines.append("🚩 ФОРМУЛИРОВКИ В ОБЪЯВЛЕНИИ")
+        lines.extend(f"- {r}" for r in listing["risks"])
+
+    lines.append("")
+    lines.append("🔗 ПРОВЕРИТЬ САМОМУ")
+    if data and data.get("x") is not None:
+        lat, lon = mercator_to_wgs84(data["x"], data["y"])
+        lines.append(f"Координаты: {lat:.5f}, {lon:.5f}")
+        lines.append(f"Спутник: https://yandex.ru/maps/?ll={lon:.5f}%2C{lat:.5f}&z=17&l=sat")
+        lines.append(f"НСПД (слои ЗОУИТ): https://nspd.gov.ru/map?zoom=17"
+                     f"&coordinate_x={lon:.5f}&coordinate_y={lat:.5f}")
+    lines.append(f"ПКК: https://pkk.rosreestr.ru/#/search/{cn}")
+    lines.append("Выписка ЕГРН: https://www.gosuslugi.ru/600133/1/form")
+
+    lines.append("")
+    lines.append("📋 ЧЕГО НЕТ В ОТКРЫТЫХ ДАННЫХ - СМОТРЕТЬ РУКАМИ")
+    lines.append("1. Зона затопления/подтопления - слой ЗОУИТ на НСПД. "
+                 "Есть зона = строить жильё запрещено (ст. 67.1 ВК РФ).")
+    lines.append("2. Водоохранная зона и береговая полоса 20 м - в собственность не идёт.")
+    lines.append("3. Наложение на земли лесного фонда - сверить границы.")
+    lines.append("4. Собственник, обременения, аресты, срок владения - только выписка ЕГРН.")
+    lines.append("5. Опора электросети ближе 300 м - иначе ТП от 300 тыс вместо 550 ₽.")
+    lines.append("6. Съездить после дождя и спросить соседей, докуда доходила вода.")
+
+    return "\n".join(lines)
+
+
+async def check_land_plot(text: str) -> str:
+    """Полный разбор: кадастровый номер + текст объявления."""
+    numbers = find_cadastral_numbers(text)
+    if not numbers:
+        return ""
+    listing = parse_listing(text)
+    reports = []
+    for cn in numbers[:3]:
+        data = await lookup_cadastral(cn)
+        reports.append(format_land_report(cn, data, listing))
+    return "\n\n———\n\n".join(reports)
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:
@@ -486,6 +838,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Я многопрофильный ИИ-ассистент. Умею:\n\n"
         "🏗 Слаботочные системы - СПС, СОУЭ, СКУД, CCTV, СКС (нормы 2025-2026)\n"
         "🍺 Пивоварение и дистилляция - рецептура, расчёты, технология\n"
+        "🏞 Проверять земельные участки - кинь кадастровый номер или объявление с Авито\n"
         "📄 Читать PDF - пришли файл и задай вопрос по нему\n"
         "🌐 Искать свежие новости - кнопка Новости или спроси сам\n\n"
         "Выбери раздел или задай вопрос 👇",
@@ -508,14 +861,66 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🌐 Новости - свежие новости по любой теме\n"
         "🔥 СПС, СОУЭ, СКУД, CCTV, СКС, Питание, Документация - слаботочные системы\n"
         "🍺 Пивоварение, 🥃 Дистилляция, 🌾 Рецепты - напитки профуровня\n"
-        "🍋 Ur-Weizen - мой рецепт пшеничного пива\n\n"
+        "🍋 Ur-Weizen - мой рецепт пшеничного пива\n"
+        "🏞 Участок - проверка земли по ЕГРН: категория, ВРИ, цена за сотку, риски\n\n"
         "Примеры:\n"
         "- Рассчитай АКБ: ток 0.5А, резерв 24 часа\n"
         "- Рецепт IPA на 25 литров, 60 IBU\n"
-        "- Последние новости пожарная безопасность\n\n"
+        "- Последние новости пожарная безопасность\n"
+        "- /uchastok 23:02:0209000:1629\n\n"
         "/reset - очистить историю и PDF",
         reply_markup=get_main_keyboard()
     )
+
+
+async def land_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/uchastok 23:02:0209000:1629 - разбор участка по кадастровому номеру."""
+    query = " ".join(context.args) if context.args else ""
+    if not find_cadastral_numbers(query):
+        await update.message.reply_text(
+            "Дай кадастровый номер в формате 23:02:0209000:1629\n\n"
+            "Пример: /uchastok 23:02:0209000:1629\n"
+            "Или просто пришли текст объявления - номер найду сам.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    await run_land_check(update, context, query)
+
+
+async def run_land_check(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Общий прогон проверки участка - и для команды, и для обычного сообщения."""
+    user_id = update.effective_user.id
+    if user_id in processing_users:
+        await update.message.reply_text("⏳ Подожди, обрабатываю предыдущий запрос...")
+        return
+    processing_users.add(user_id)
+    stop_typing = asyncio.Event()
+    typing_task = asyncio.create_task(
+        send_typing_action(context, update.effective_chat.id, stop_typing)
+    )
+    try:
+        await update.message.reply_text("🏞 Нашёл кадастровый номер, поднимаю ЕГРН...")
+        report = await check_land_plot(text)
+        stop_typing.set()
+        await typing_task
+        if not report:
+            await update.message.reply_text(
+                "❌ Не смог разобрать номер. Проверь формат: 23:02:0209000:1629",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        await send_long_message(update, report)
+        logger.info(f"LAND check: user={user_id}, {find_cadastral_numbers(text)}")
+    except Exception as e:
+        stop_typing.set()
+        await typing_task
+        logger.error(f"LAND error user={user_id}: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Росреестр не ответил. Проверь вручную: https://nspd.gov.ru/map",
+            reply_markup=get_main_keyboard()
+        )
+    finally:
+        processing_users.discard(user_id)
 
 
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -586,6 +991,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Кадастровый номер в тексте - это всегда запрос на проверку участка,
+    # к нейросети такое отправлять бессмысленно
+    if find_cadastral_numbers(user_text):
+        await run_land_check(update, context, user_text)
+        return
+
     if user_id in processing_users:
         await update.message.reply_text("⏳ Обрабатываю предыдущий вопрос, подожди...")
         return
@@ -643,6 +1054,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset_cmd))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("uchastok", land_cmd))
+    app.add_handler(CommandHandler("kadastr", land_cmd))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
