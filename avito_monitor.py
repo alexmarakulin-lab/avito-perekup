@@ -470,10 +470,19 @@ async def fetch_html(url: str) -> str:
                 continue
             raise AvitoBlocked(last)
 
-        if status in (403, 429):
-            raise AvitoBlocked(f"HTTP {status} - слишком часто, нужны паузы длиннее")
-        if status >= 400:
-            raise AvitoBlocked(f"HTTP {status} от Авито")
+        # Код ответа - решающий довод только при запросах по http. У браузера
+        # он вранью не помеха: замер 12.08.2026 - страница живого объявления
+        # («iPhone 17 Pro, 256 ГБ, eSIM», цена та же, что в выдаче) пришла с
+        # кодом 439. Отвергай мы её по коду, проверка «продано ли» ломалась бы
+        # на каждом объявлении, и бот никогда не узнал бы реальных цен сделок.
+        #
+        # Настоящий заслон при этом никуда не денется: капчу и подмену
+        # главной ловят проверки выше, по содержимому, а не по коду.
+        if not USE_BROWSER:
+            if status in (403, 429):
+                raise AvitoBlocked(f"HTTP {status} - слишком часто, нужны паузы длиннее")
+            if status >= 400:
+                raise AvitoBlocked(f"HTTP {status} от Авито")
         return html
 
     raise AvitoBlocked(last or "выдача не пришла")
@@ -488,6 +497,17 @@ def _parse_price(value) -> int:
         return 0
     digits = re.sub(r"[^\d]", "", str(value))
     return int(digits) if digits else 0
+
+
+def item_url(href: str) -> str:
+    """Полная ссылка на объявление, без хвоста отслеживания.
+
+    Авито прикладывает к ссылке в выдаче метку вида ?context=H4sIAAAA... на
+    полторы сотни знаков. Для перехода она не нужна - объявление открывается
+    и без неё, - а сообщение с такой ссылкой не прочитать глазами.
+    """
+    href = href.split("?")[0]
+    return href if href.startswith("http") else f"https://www.avito.ru{href}"
 
 
 def _walk_json_items(node, out: list, depth: int = 0):
@@ -559,7 +579,7 @@ def parse_from_json(html: str) -> list:
             "item_id": str(raw.get("id")),
             "title": str(raw.get("title", "")).strip(),
             "price": price,
-            "url": url_path if url_path.startswith("http") else f"https://www.avito.ru{url_path}",
+            "url": item_url(url_path),
             "address": (raw.get("geo") or {}).get("formattedAddress", "")
             if isinstance(raw.get("geo"), dict) else "",
         })
@@ -590,7 +610,7 @@ def parse_from_dom(html: str) -> list:
             "item_id": str(item_id),
             "title": title_el.get_text(strip=True),
             "price": price,
-            "url": href if href.startswith("http") else f"https://www.avito.ru{href}",
+            "url": item_url(href),
             "address": addr_el.get_text(strip=True) if addr_el else "",
         })
     return items
@@ -946,8 +966,12 @@ async def self_test(query: str = "перфоратор") -> str:
     out.append(f"подходит запросу: {len(good)} из {len(items)}")
     out.append("")
     out.append("Первые находки:")
+    # Со ссылкой, а не одним названием. Иначе проверка отвечает на вопрос
+    # «видит ли бот выдачу», но не на вопрос «правда ли там эта цена», -
+    # а второй для перекупа и есть главный.
     for item in good[:5]:
-        out.append(f"  • {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+        out.append(f"• {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+        out.append(f"  {item['url']}")
     if dropped:
         out.append("")
         out.append("Отсеяно как не то:")

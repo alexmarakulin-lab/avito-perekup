@@ -31,6 +31,17 @@ import env_file
 # из .env должен стоять в окружении раньше.
 env_file.load()
 
+# Своя папка профиля браузера, отдельная от рабочей.
+#
+# Chrome пускает в профиль только один процесс. Пока бот работает, папка
+# занята им, и проверка из консоли получала невнятное «target has been
+# closed» - при том что дело было не в Авито и не в коде. Со своим профилем
+# проверку можно запускать, не выключая бота.
+os.environ.setdefault(
+    "AVITO_BROWSER_PROFILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser_profile_check"),
+)
+
 import avito_monitor
 
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

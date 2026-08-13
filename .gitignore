@@ -6,4 +6,5 @@ venv/
 data/
 # Профиль браузера: печенья Авито и кэш. Личное и тяжёлое, в git не место.
 browser_profile/
+browser_profile_check/
 last.html

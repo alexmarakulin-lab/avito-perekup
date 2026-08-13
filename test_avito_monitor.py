@@ -89,6 +89,25 @@ check("DOM: цена из meta", dom_items[0]["price"] == 2700, dom_items[0]["pr
 check("DOM: цена из текста '4 200 ₽'", dom_items[1]["price"] == 4200, dom_items[1]["price"])
 check("DOM: готовый http-URL не ломается", dom_items[1]["url"] == "https://www.avito.ru/krasnodar/x_2002")
 
+# Ссылка нужна такая, чтобы по ней можно было зайти и увидеть ту же цену.
+# Авито вешает на ссылку в выдаче метку отслеживания на полторы сотни
+# знаков - в сообщении это нечитаемо, а для перехода не нужно.
+check("ссылка: хвост ?context= отрезан",
+      am.item_url("/krasnodar/p_1?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEz")
+      == "https://www.avito.ru/krasnodar/p_1", am.item_url("/krasnodar/p_1?context=xxx"))
+check("ссылка: без хвоста ничего не портится",
+      am.item_url("/krasnodar/p_2") == "https://www.avito.ru/krasnodar/p_2")
+check("ссылка: готовый абсолютный адрес не задваивается",
+      am.item_url("https://www.avito.ru/krasnodar/p_3?context=x")
+      == "https://www.avito.ru/krasnodar/p_3")
+
+dom_ctx = am.parse_from_dom(
+    '<div data-marker="item" data-item-id="2003">'
+    '<a data-marker="item-title" href="/krasnodar/p_2003?context=H4sIAAA"><h3>Диван</h3></a>'
+    '<meta itemprop="price" content="3000"></div>')
+check("DOM: метка отслеживания не доезжает до сообщения",
+      dom_ctx[0]["url"] == "https://www.avito.ru/krasnodar/p_2003", dom_ctx[0]["url"])
+
 check("parse_search: fallback на DOM", len(am.parse_search(html_dom)) == 2)
 check("parse_search: приоритет JSON", len(am.parse_search(html_json)) == 3)
 check("parse_search: мусорная страница -> пусто", am.parse_search("<html>ничего</html>") == [])
@@ -442,6 +461,52 @@ ab.PROXY = "socks5://45.67.89.10:18360"
 check("браузер: прокси без логина не ломается",
       ab._proxy_settings() == {"server": "socks5://45.67.89.10:18360"}, ab._proxy_settings())
 ab.PROXY = saved_browser_proxy
+
+
+async def browser_status_codes():
+    """У браузера код ответа не улика: живое объявление приходило с 439."""
+    calls = []
+
+    async def fake_fetch(url):
+        calls.append(url)
+        return 439, ('<html><title>iPhone 17 Pro купить в Краснодаре</title>'
+                     '<body><span itemprop="price" content="95000"></span></body></html>')
+
+    original_fetch, ab.fetch = ab.fetch, fake_fetch
+    am.USE_BROWSER = True
+    try:
+        page = await am.fetch_html("https://www.avito.ru/krasnodar/telefony/iphone_1")
+        check("код ответа: страница с кодом 439 через браузер принимается",
+              "iPhone 17 Pro" in page, page[:60])
+    except am.AvitoBlocked as exc:
+        check("код ответа: страница с кодом 439 через браузер принимается", False, str(exc))
+    finally:
+        ab.fetch = original_fetch
+        am.USE_BROWSER = False
+
+    # А по http код по-прежнему решающий: там врать нечему.
+    import httpx
+
+    class R:
+        def __init__(self): self.status_code, self.text = 503, "<html>беда</html>"
+
+    class C:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url): return R()
+
+    saved = httpx.AsyncClient
+    httpx.AsyncClient = lambda *a, **kw: C()
+    try:
+        await am.fetch_html("https://www.avito.ru/krasnodar")
+        check("код ответа: по http код 503 по-прежнему отказ", False, "исключения не было")
+    except am.AvitoBlocked:
+        check("код ответа: по http код 503 по-прежнему отказ", True)
+    finally:
+        httpx.AsyncClient = saved
+
+
+asyncio.run(browser_status_codes())
 
 
 async def browser_route():
