@@ -151,8 +151,25 @@ if PTB:
     check("сборка: команды на месте",
           commands == ["avito", "avito_off", "avito_on", "avito_report", "avito_test",
                        "help", "myid", "reset", "start"], commands)
-    check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 1, len(handlers))
+    check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 2, len(handlers))
     check("сборка: post_init назначен", callable(app.post_init))
+
+    # Кнопки под сообщением приходят отдельным видом события. Не запросив
+    # его у Telegram, бот их даже не получит - без ошибки, без записи в
+    # логах, просто нажатие в пустоту. Проверка прямая, потому что заметить
+    # такое можно только по молчанию.
+    from telegram.ext import CallbackQueryHandler
+    check("сборка: нажатия кнопок обрабатываются",
+          any(isinstance(h, CallbackQueryHandler) for h in handlers))
+    check("сборка: нажатия кнопок запрошены у Telegram",
+          "callback_query" in avito_bot.ALLOWED_UPDATES, avito_bot.ALLOWED_UPDATES)
+
+    # Список событий один на оба способа запуска. Разъедься они - починенным
+    # окажется только один, и разница вылезет лишь на живом боте.
+    run_bot_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "run_bot.py"), encoding="utf-8").read()
+    check("сборка: домашний запуск берёт тот же список событий",
+          "ALLOWED_UPDATES" in run_bot_src and 'allowed_updates=["message"]' not in run_bot_src)
 
     # Сторож бесполезен, если приставлен не к тому соединению: библиотека
     # держит опрос и всё остальное на разных наборах, и прежний сторож

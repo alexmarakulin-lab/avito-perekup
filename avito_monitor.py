@@ -1128,29 +1128,72 @@ async def cmd_avito_report(update, context):
     await update.message.reply_text(build_report(24), parse_mode="HTML")
 
 
+TEST_PREFIX = "avitotest:"
+
+
+def test_keyboard():
+    """Кнопки выбора: что именно проверять.
+
+    Раньше проверка была намертво зашита на «перфоратор», и увидеть по ней
+    айфоны было нельзя в принципе - сколько ни нажимай. Проверять же все
+    двадцать с лишним слов разом нельзя: это два десятка страниц подряд,
+    ровно тот способ, которым мы однажды заработали капчу на целый день.
+    Поэтому выбор: одно нажатие - одна страница.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    buttons, row = [], []
+    for key, cat in CATEGORIES.items():
+        row.append(InlineKeyboardButton(f"{cat['emoji']} {cat['name']}",
+                                        callback_data=f"{TEST_PREFIX}{key}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
+
+
 async def cmd_avito_test(update, context):
-    query = " ".join(context.args) if context.args else "перфоратор"
-    await update.message.reply_text(f"⏳ Проверяю Авито по запросу «{query}»...")
-    await update.message.reply_text(await self_test(query))
+    """Проверка связи с Авито: по названному слову или по выбранной категории."""
+    if context.args:
+        query = " ".join(context.args)
+        await update.message.reply_text(f"⏳ Проверяю Авито по запросу «{query}»...")
+        await update.message.reply_text(await self_test(query))
+        return
+
+    await update.message.reply_text(
+        "Что проверить? Одно нажатие — одна страница выдачи.",
+        reply_markup=test_keyboard(),
+    )
 
 
-def register(app):
-    """Подключает команды монитора и фоновую задачу к приложению бота."""
-    from telegram.ext import CommandHandler
+async def on_test_choice(update, context):
+    """Нажали кнопку выбора категории."""
+    query_obj = update.callback_query
+    # Telegram ждёт подтверждения, иначе на кнопке навсегда останутся часики.
+    await query_obj.answer()
 
-    app.add_handler(CommandHandler("avito", cmd_avito))
-    app.add_handler(CommandHandler("avito_on", cmd_avito_on))
-    app.add_handler(CommandHandler("avito_off", cmd_avito_off))
-    app.add_handler(CommandHandler("avito_report", cmd_avito_report))
-    app.add_handler(CommandHandler("avito_test", cmd_avito_test))
+    cat_key = query_obj.data[len(TEST_PREFIX):]
+    cat = CATEGORIES.get(cat_key)
+    if not cat:
+        await query_obj.message.reply_text("Не знаю такой категории.")
+        return
 
-    previous_post_init = getattr(app, "post_init", None)
+    query = cat["queries"][0]
+    low, high = price_band(cat_key)
+    await query_obj.message.reply_text(
+        f"⏳ Проверяю «{query}» в коридоре "
+        f"{low:,}–{high:,} ₽...".replace(",", " ")
+    )
+    await query_obj.message.reply_text(await self_test(query))
 
-    async def _start_monitor(application):
-        if previous_post_init:
-            await previous_post_init(application)
-        init_db()
-        application.create_task(monitor_loop(application.bot))
 
-    app.post_init = _start_monitor
-    logger.info("Монитор Авито: команды подключены")
+# Здесь была register(app) - вторая, никем не вызываемая сборка команд.
+# Настоящая живёт в avito_bot.build_app(), и только она работает.
+#
+# Убрана 13.08.2026, потому что успела соврать: добавленный в неё
+# обработчик кнопок выглядел подключённым, а на деле не подключался
+# никуда, и кнопка молчала. Заметить это можно было только по молчанию -
+# ни ошибки, ни строчки в логах. Второе место, где «тоже подключаются
+# команды», - ловушка, а не запас прочности.

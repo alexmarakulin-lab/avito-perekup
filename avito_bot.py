@@ -19,7 +19,8 @@ env_file.load()
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ChatAction
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.ext import (ApplicationBuilder, CallbackQueryHandler, ContextTypes,
+                          CommandHandler, MessageHandler, filters)
 from telegram.request import HTTPXRequest
 
 import avito_monitor
@@ -81,6 +82,17 @@ BTN_ON = "🟢 Включить"
 BTN_OFF = "⚪️ Выключить"
 BTN_TEST = "🔍 Проверить Авито"
 
+# Какие события забирать у Telegram.
+#
+# Список общий для обоих способов запуска - и через run_bot.py дома, и
+# напрямую на сервере. Врозь они однажды разъедутся, и починенным окажется
+# только один: пропажу события не видно ни в логах, ни по ошибке - кнопка
+# просто перестаёт отвечать.
+#
+# callback_query - это нажатия кнопок под сообщением (выбор категории для
+# проверки). Без него Telegram их даже не пришлёт.
+ALLOWED_UPDATES = ["message", "callback_query"]
+
 
 def keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -111,6 +123,25 @@ async def guard(update: Update) -> bool:
     return False
 
 
+def guarded_callback(handler):
+    """Отбор чужих для нажатий кнопок.
+
+    Обычная проверка отвечает через update.message, а у нажатия кнопки
+    сообщения нет - там update.callback_query. Позови её здесь, и бот
+    свалился бы с ошибкой на первом же чужаке.
+    """
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if allowed(update):
+            await handler(update, context)
+            return
+        user_id = update.effective_user.id if update.effective_user else "?"
+        logger.warning(f"Отклонено чужое нажатие от {user_id}")
+        # Подтвердить нажатие надо в любом случае, иначе у чужого на кнопке
+        # навсегда останутся часики, а он будет жать снова и снова.
+        await update.callback_query.answer("Это личный бот.", show_alert=True)
+    return wrapper
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await guard(update):
         return
@@ -124,9 +155,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(
         "💰 <b>Перекуп — Краснодар</b>\n\n"
-        f"Слежу за новыми лотами до {avito_monitor.MAX_PRICE:,} ₽".replace(",", " ") + " "
-        "по четырём категориям: инструмент, садовая техника, кондиционеры, "
-        "мебель и бытовая техника.\n\n"
+        "Слежу за новыми лотами по категориям:\n"
+        # Список строится сам: иначе он врал бы при каждом добавлении
+        # категории, а вилки цен у них разные и на память их не пересказать.
+        + "\n".join(
+            f"{cat['emoji']} {cat['name']} — "
+            + "{:,}–{:,} ₽".format(*avito_monitor.price_band(key)).replace(",", " ")
+            for key, cat in avito_monitor.CATEGORIES.items()
+        ) + "\n\n"
         "Первые дни присылаю всё, что укладывается в бюджет — так копится "
         "статистика цен. Дальше остаются только лоты дешевле медианы рынка.\n\n"
         "Начни с «🔍 Проверить Авито» — убедимся, что выдача читается.\n"
@@ -362,6 +398,11 @@ def build_app():
     app.add_handler(CommandHandler("avito_report", protect(avito_monitor.cmd_avito_report)))
     app.add_handler(CommandHandler("avito_test", protect(avito_monitor.cmd_avito_test)))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_button))
+    # Нажатия кнопок под сообщением - выбор категории для проверки Авито.
+    # Отбор чужих здесь свой: у нажатия нет сообщения, на котором держится
+    # обычная проверка, и она бы просто свалилась с ошибкой.
+    app.add_handler(CallbackQueryHandler(guarded_callback(avito_monitor.on_test_choice),
+                                         pattern=f"^{avito_monitor.TEST_PREFIX}"))
     app.add_error_handler(error_handler)
 
     async def _post_init(application):
@@ -398,4 +439,4 @@ if __name__ == "__main__":
         )
 
     logger.info("Запуск бота-перекупа...")
-    build_app().run_polling(drop_pending_updates=True, allowed_updates=["message"])
+    build_app().run_polling(drop_pending_updates=True, allowed_updates=ALLOWED_UPDATES)

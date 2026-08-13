@@ -72,4 +72,5 @@ print(RULER + "\n")
 
 import avito_bot
 
-avito_bot.build_app().run_polling(drop_pending_updates=True, allowed_updates=["message"])
+avito_bot.build_app().run_polling(drop_pending_updates=True,
+                                  allowed_updates=avito_bot.ALLOWED_UPDATES)

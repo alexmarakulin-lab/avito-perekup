@@ -400,6 +400,67 @@ check("Apple: айфон за 20 000 отсеян - столько рабочи�
 good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 70000}, "перфоратор")
 check("вилка: перфоратор за 70 000 по-прежнему отсеивается", not good)
 
+# --- выбор категории при проверке ---
+# Проверка была намертво зашита на «перфоратор»: увидеть по ней айфоны было
+# нельзя в принципе, сколько ни нажимай. Теперь кнопка спрашивает, что
+# смотреть, - и в списке обязаны быть все категории, включая новые.
+kb = am.test_keyboard()
+labels = [b.text for row in kb.inline_keyboard for b in row]
+codes = [b.callback_data for row in kb.inline_keyboard for b in row]
+check("выбор: кнопок столько же, сколько категорий",
+      len(labels) == len(am.CATEGORIES), labels)
+check("выбор: айфоны есть среди кнопок",
+      any("Айфоны" in text for text in labels), labels)
+check("выбор: часы Apple есть среди кнопок",
+      any("Часы Apple" in text for text in labels), labels)
+check("выбор: у каждой кнопки свой опознаватель",
+      len(set(codes)) == len(codes) and all(c.startswith(am.TEST_PREFIX) for c in codes),
+      codes)
+
+
+async def test_choice_runs():
+    """Нажатие кнопки должно привести к проверке слова именно этой категории."""
+    asked = []
+
+    async def fake_self_test(query):
+        asked.append(query)
+        return "готово"
+
+    class FakeMessage:
+        def __init__(self): self.replies = []
+        async def reply_text(self, text, **kw): self.replies.append(text)
+
+    class FakeCallback:
+        def __init__(self, data):
+            self.data, self.message, self.answered = data, FakeMessage(), False
+        async def answer(self, *a, **kw): self.answered = True
+
+    class FakeUpdate:
+        def __init__(self, data): self.callback_query = FakeCallback(data)
+
+    saved, am.self_test = am.self_test, fake_self_test
+    try:
+        upd = FakeUpdate(am.TEST_PREFIX + "iphone")
+        await am.on_test_choice(upd, None)
+        check("выбор: нажатие подтверждено, иначе на кнопке висят часики",
+              upd.callback_query.answered)
+        check("выбор: проверяется слово выбранной категории",
+              asked == ["iphone 17 pro"], asked)
+        joined = " ".join(upd.callback_query.message.replies)
+        check("выбор: назван коридор цен этой категории",
+              "40 000" in joined and "95 000" in joined, joined[:90])
+
+        # Чужой или устаревший опознаватель не должен ронять бота.
+        bad = FakeUpdate(am.TEST_PREFIX + "выдумка")
+        await am.on_test_choice(bad, None)
+        check("выбор: неизвестная категория не роняет бота",
+              "Не знаю" in " ".join(bad.callback_query.message.replies))
+    finally:
+        am.self_test = saved
+
+
+asyncio.run(test_choice_runs())
+
 # --- URL поиска ---
 url = am.build_search_url("сплит система")
 check("URL: регион", "/krasnodar?" in url, url)
