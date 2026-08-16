@@ -54,14 +54,44 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-miss=0
-for key in AVITO_BOT_TOKEN AVITO_OWNER_ID; do
-    if ! grep -q "^${key}=." .env; then
-        echo "  не заполнено: ${key}"
-        miss=1
+# Токен спрашивать здесь нельзя: он длинный, а буфер VNC режет длинные
+# строки - приедет обрубок, и разбираться потом будем полдня.
+if ! grep -q "^AVITO_BOT_TOKEN=." .env; then
+    echo "  не заполнен AVITO_BOT_TOKEN."
+    echo "  Впиши его так (вместо ЗДЕСЬ подставь токен от @BotFather):"
+    echo "     sed -i '/^AVITO_BOT_TOKEN=/d' .env; echo 'AVITO_BOT_TOKEN=ЗДЕСЬ' >> .env"
+    exit 1
+fi
+
+# А номер короткий, его проще спросить, чем отправлять человека в nano:
+# редактор в окне VNC - отдельное приключение со своими горячими клавишами.
+if ! grep -q "^AVITO_OWNER_ID=." .env; then
+    echo "  Не заполнен твой номер в Telegram - без него боту сможет писать кто угодно."
+    echo "  Это короткое число из 9-10 цифр. Узнать: бот @userinfobot в Telegram."
+    echo
+    read -r -p "  Номер (Enter - пропустить и выйти): " owner
+    if [ -z "${owner}" ] || ! echo "$owner" | grep -qE '^[0-9]+$'; then
+        echo "  Нужны только цифры. Выхожу."
+        exit 1
     fi
-done
-[ "$miss" = 1 ] && { echo; echo "  Поправь: nano .env"; exit 1; }
+    # Сначала стираем старую строку, потом пишем новую: так неважно, была
+    # она пустой или её не было вовсе.
+    sed -i '/^AVITO_OWNER_ID=/d' .env
+    echo "AVITO_OWNER_ID=${owner}" >> .env
+    sed -i '/^AVITO_OWNER_CHAT=/d' .env
+    echo "AVITO_OWNER_CHAT=${owner}" >> .env
+    echo "  записал"
+fi
+
+# Куда слать находки. Обычно тот же номер, что и владелец, но строки может
+# не быть вовсе - тогда монитор нашёл бы лот и не знал, кому о нём сказать.
+if ! grep -q "^AVITO_OWNER_CHAT=." .env; then
+    owner=$(grep '^AVITO_OWNER_ID=' .env | cut -d= -f2)
+    sed -i '/^AVITO_OWNER_CHAT=/d' .env
+    echo "AVITO_OWNER_CHAT=${owner}" >> .env
+    echo "  проставил, куда слать находки: ${owner}"
+fi
+
 echo "  токен и номер владельца на месте"
 
 # ---------- 3. Сборка ----------
