@@ -20,13 +20,23 @@ services:
       AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
       # Скорость обхода. От неё зависит и блокировка, и счёт за трафик,
       # если Авито читается через прокси с оплатой по гигабайтам.
-      AVITO_QUERIES_PER_CYCLE: ${AVITO_QUERIES_PER_CYCLE:-4}
+      AVITO_QUERIES_PER_CYCLE: ${AVITO_QUERIES_PER_CYCLE:-5}
       AVITO_REQ_DELAY_MIN: ${AVITO_REQ_DELAY_MIN:-45}
       AVITO_REQ_DELAY_MAX: ${AVITO_REQ_DELAY_MAX:-90}
       AVITO_CYCLE_PAUSE: ${AVITO_CYCLE_PAUSE:-600}
       AVITO_REGION: ${AVITO_REGION:-krasnodar}
       AVITO_PROXY: ${AVITO_PROXY:-}
+      # Как читаем Авито. Умолчания заданы в Dockerfile: браузер, обычный
+      # режим под виртуальным экраном, профиль на томе. Здесь - только чтобы
+      # можно было переключить, не пересобирая образ.
+      AVITO_FETCH: ${AVITO_FETCH:-browser}
+      AVITO_BROWSER_HEADLESS: ${AVITO_BROWSER_HEADLESS:-0}
       TZ: Europe/Moscow
+    # Chromium в один гигабайт памяти влезает впритык. Ограничение здесь не
+    # для экономии, а чтобы при утечке контейнер перезапустился сам, а не
+    # утащил за собой весь сервер: на машине без свободной памяти перестаёт
+    # отвечать и ssh, и панель.
+    mem_limit: ${AVITO_MEM_LIMIT:-800m}
     volumes:
       - ./data:/data
     # Закрепляем адрес Telegram по IPv4. Иначе на серверах, где IPv6 настроен
