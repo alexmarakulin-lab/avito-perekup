@@ -97,11 +97,43 @@ echo "  токен и номер владельца на месте"
 # ---------- 3. Сборка ----------
 say "3/5  Собираю образ. Это 5-15 минут, качается браузер"
 
-if ! docker compose build; then
+# Связь с этого сервера рваная: и github.com, и pypi.org обрываются на
+# середине сериями. С git это лечилось повтором - обычно проходило со
+# второй попытки. Здесь то же самое, только автоматически.
+#
+# Третья попытка идёт через зеркало: если pypi.org закрыт не по случаю, а
+# насовсем, повторять его бессмысленно, нужен другой адрес.
+MIRROR_PIP="https://pypi.tuna.tsinghua.edu.cn/simple"
+MIRROR_PW="https://npmmirror.com/mirrors/playwright/"
+
+built=0
+for attempt in 1 2 3; do
+    if [ "$attempt" = 3 ]; then
+        echo
+        echo "  Попытка 3: беру библиотеки с зеркала, раз pypi.org не отвечает."
+        args="--build-arg PIP_INDEX=${MIRROR_PIP} --build-arg PW_HOST=${MIRROR_PW}"
+    else
+        echo
+        echo "  Попытка ${attempt} из 3..."
+        args=""
+    fi
+
+    # shellcheck disable=SC2086
+    if docker compose build $args; then
+        built=1
+        break
+    fi
+    [ "$attempt" -lt 3 ] && { echo "  Оборвалось. Жду 10 секунд и повторяю."; sleep 10; }
+done
+
+if [ "$built" != 1 ]; then
     echo
-    echo "  Сборка не прошла. Частая причина - недоступное зеркало образов."
-    echo "  Тогда в Dockerfile поменяй первую строку на:"
-    echo "     FROM python:3.11-slim"
+    echo "  Сборка не прошла три раза. Что смотреть в выводе выше:"
+    echo "   - 'pypi.org ... Read timed out'  - не достучались до библиотек;"
+    echo "     значит и зеркало закрыто, нужен прокси для сборки."
+    echo "   - 'cr.yandex/mirror ...'         - недоступно зеркало образов;"
+    echo "     тогда в Dockerfile первую строку замени на FROM python:3.11-slim"
+    echo "   - 'No space left'                - кончилось место: docker system prune -a"
     exit 1
 fi
 

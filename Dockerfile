@@ -5,8 +5,20 @@ FROM cr.yandex/mirror/python:3.11-slim
 
 WORKDIR /app
 
+# Откуда брать библиотеки и браузер.
+#
+# С этого сервера pypi.org отвечает через раз: соединение обрывается на
+# середине, как и с github.com. Причина та же - фильтрация на пути, и
+# лечится она не настройками, а повторами и запасным зеркалом.
+# server_up.sh сам подставит зеркало, если с первого раза не вышло.
+ARG PIP_INDEX=https://pypi.org/simple
+ARG PW_HOST=
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --retries и --timeout подняты сильно выше умолчаний (5 попыток по 15 с):
+# при рваной связи важнее дождаться, чем быстро сдаться.
+RUN pip install --no-cache-dir --retries 20 --timeout 60 \
+        --index-url "$PIP_INDEX" -r requirements.txt
 
 # Браузер и виртуальный экран.
 #
@@ -19,9 +31,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 #
 # --with-deps подтягивает системные библиотеки, без которых Chromium не
 # стартует. Их около сотни, руками перечислять - гиблое дело.
+#
+# PLAYWRIGHT_DOWNLOAD_HOST - на случай, если и до склада браузеров с этого
+# сервера не достучаться. Пустая переменная означает «бери откуда обычно».
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb \
-    && python3 -m playwright install --with-deps chromium \
+    && PLAYWRIGHT_DOWNLOAD_HOST="$PW_HOST" \
+       python3 -m playwright install --with-deps chromium \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY avito_bot.py avito_monitor.py avito_browser.py resale_expert.py check_avito.py \
