@@ -45,8 +45,9 @@ RUN apt-get update \
        python3 -m playwright install --with-deps chromium \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY avito_bot.py avito_monitor.py avito_browser.py resale_expert.py check_avito.py \
-     env_file.py test_avito_monitor.py test_avito_bot.py test_resale_expert.py ./
+COPY docker-entry.sh avito_bot.py avito_monitor.py avito_browser.py \
+     resale_expert.py check_avito.py env_file.py \
+     test_avito_monitor.py test_avito_bot.py test_resale_expert.py ./
 
 # Читаем Авито браузером - так же, как дома.
 ENV AVITO_FETCH=browser
@@ -66,7 +67,11 @@ ENV AVITO_BROWSER_PROFILE=/data/browser_profile
 ENV AVITO_DB=/data/avito.db
 VOLUME ["/data"]
 
-# xvfb-run поднимает виртуальный экран и запускает под ним бота.
-# -a - сам подберёт свободный номер экрана, если первый занят.
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1440x900x24", \
-     "python3", "avito_bot.py"]
+# Экран поднимает docker-entry.sh - и делает это для любой команды, а не
+# только для бота. Стоял бы xvfb-run в CMD, как сначала, - своя команда
+# подменяла бы его целиком, и проверка Авито запускалась бы без экрана.
+#
+# Через sh, а не напрямую: право на запуск у файла может не пережить
+# дорогу через Windows и git, а так оно и не нужно.
+ENTRYPOINT ["sh", "/app/docker-entry.sh"]
+CMD ["python3", "avito_bot.py"]
