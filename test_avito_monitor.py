@@ -179,8 +179,25 @@ check("база: повторный проход не дублирует", len(a
 median, sample = am.median_price("перфоратор")
 check("медиана: мало данных -> None", median is None and sample == 2, f"{median}/{sample}")
 
-good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 3500}, "перфоратор")
-check("отбор: без статистики шлём всё в бюджете", good and "копится" in note, note)
+# Без истории судим по сегодняшней странице выдачи. Прежде бот в этом
+# случае слал всё подряд «чтобы копилась статистика»: при четырёх словах
+# терпимо, при сорока - сотни сообщений в день, среди которых настоящие
+# находки утонули бы.
+page = [{"price": p} for p in [3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700]]
+check("страница: медиана считается по выдаче", am.page_median(page) == 3350,
+      am.page_median(page))
+check("страница: на горстке цен медиана не считается",
+      am.page_median([{"price": 3000}, {"price": 4000}]) is None)
+
+good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 1500},
+                          "перфоратор", page_ref=3400)
+check("отбор: без истории дешёвое видно по сегодняшней выдаче",
+      good and "выдаче" in note, note)
+good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 3200},
+                       "перфоратор", page_ref=3400)
+check("отбор: без истории обычная цена не будит", not good)
+good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 3500}, "перфоратор")
+check("отбор: ни истории, ни страницы - молчим, а не шлём всё", not good)
 good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 9000}, "перфоратор")
 check("отбор: дороже потолка 5000 - молчим", not good)
 good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 100}, "перфоратор")
@@ -393,8 +410,9 @@ check("Apple: нормальное объявление проходит",
 
 # Отбор находки должен считать по вилке своей категории. Айфон за 70 тысяч
 # в общий потолок 5000 ₽ не влезал бы и молча пропадал.
-good, _ = am.rate_deal({"title": "iPhone 17 Pro 256", "price": 70000}, "iphone 17 pro")
-check("Apple: айфон за 70 000 проходит по своей вилке", good)
+good, _ = am.rate_deal({"title": "iPhone 17 Pro 256", "price": 55000},
+                       "iphone 17 pro", page_ref=92000)
+check("Apple: дешёвый айфон проходит по своей вилке и будит", good)
 good, _ = am.rate_deal({"title": "iPhone 17 Pro 256", "price": 20000}, "iphone 17 pro")
 check("Apple: айфон за 20 000 отсеян - столько рабочий не стоит", not good)
 good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 70000}, "перфоратор")

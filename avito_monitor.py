@@ -63,7 +63,14 @@ MIN_PRICE = int(os.getenv("AVITO_MIN_PRICE", "300"))
 REQ_DELAY_MIN = float(os.getenv("AVITO_REQ_DELAY_MIN", "45"))
 REQ_DELAY_MAX = float(os.getenv("AVITO_REQ_DELAY_MAX", "90"))
 # Пауза между кругами.
-CYCLE_PAUSE = int(os.getenv("AVITO_CYCLE_PAUSE", "900"))
+#
+# Уменьшена с 15 минут до 10 вместе с расширением списка слов до сорока: с
+# прежними настройками полный обход занимал бы четыре часа, а «сразу
+# уведомление» при таком круге - пустой звук. Выходит около двадцати
+# обращений в час против сорока, которыми блокировка была заработана, - и
+# те сорок шли библиотекой, а не настоящим браузером, к которому у защиты
+# вопросов заметно меньше.
+CYCLE_PAUSE = int(os.getenv("AVITO_CYCLE_PAUSE", "600"))
 
 # Сколько поисковых слов обходить за один круг. Ноль - все подряд, как было.
 #
@@ -72,7 +79,7 @@ CYCLE_PAUSE = int(os.getenv("AVITO_CYCLE_PAUSE", "900"))
 # несколько кругов слова всё равно обойдутся все, просто вразвалку. Заодно
 # это прямо экономит деньги, если Авито читается через прокси с оплатой за
 # трафик: каждая страница выдачи весит без малого мегабайт.
-QUERIES_PER_CYCLE = int(os.getenv("AVITO_QUERIES_PER_CYCLE", "3"))
+QUERIES_PER_CYCLE = int(os.getenv("AVITO_QUERIES_PER_CYCLE", "5"))
 
 # Цена считается вкусной, если она не выше этой доли от медианы рынка.
 DEAL_RATIO = float(os.getenv("AVITO_DEAL_RATIO", "0.6"))
@@ -111,6 +118,10 @@ CATEGORIES = {
             "лазерный уровень",
             "сварочный инвертор",
             "штроборез",
+            "компрессор воздушный",
+            "генератор бензиновый",
+            "тепловая пушка",
+            "плиткорез",
         ],
     },
     "garden": {
@@ -122,6 +133,8 @@ CATEGORIES = {
             "бензопила",
             "насос погружной",
             "культиватор",
+            "газонокосилка",
+            "мойка высокого давления",
         ],
     },
     "climate": {
@@ -142,6 +155,36 @@ CATEGORIES = {
             "диван",
             "шкаф купе",
             "микроволновка",
+            "пылесос",
+            "посудомоечная машина",
+            "духовой шкаф",
+        ],
+    },
+    # Электроника - самый ходовой перекуп после инструмента, и вилка у неё
+    # своя: ноутбук за 5000 ₽ не бывает, а за 200000 неинтересен.
+    "electronics": {
+        "name": "Электроника",
+        "emoji": "💻",
+        "min_price": 3000,
+        "max_price": 60000,
+        "queries": [
+            "ноутбук",
+            "телевизор",
+            "монитор",
+            "playstation",
+            "ipad",
+            "airpods",
+            "фотоаппарат",
+        ],
+    },
+    "transport": {
+        "name": "Вело и самокаты",
+        "emoji": "🚲",
+        "min_price": 3000,
+        "max_price": 50000,
+        "queries": [
+            "велосипед",
+            "электросамокат",
         ],
     },
     # У техники Apple своя вилка цен. Общие 300-5000 ₽ рассчитаны на
@@ -788,8 +831,34 @@ def save_items(category: str, query: str, items: list) -> list:
     return fresh
 
 
-def rate_deal(item: dict, query: str, category: str | None = None) -> tuple[bool, str]:
-    """Решает, стоит ли будить владельца из-за этого лота."""
+def page_median(items: list) -> int | None:
+    """Медиана цен по одной странице выдачи.
+
+    Это способ судить о выгоде **сразу**, не дожидаясь недель накопления.
+    Страница выдачи - это полсотни объявлений про один и тот же товар,
+    выложенных прямо сейчас: готовый срез рынка на сегодня. Если среди
+    полусотни перфораторов по 3000 ₽ появился один за 1200 - это видно в ту
+    же секунду, и никакая история для этого не нужна.
+
+    Раньше без истории бот слал вообще всё, что укладывалось в бюджет,
+    «чтобы копилась статистика». При четырёх словах это было терпимо; при
+    сорока превратилось бы в сотни сообщений в день, и настоящие находки
+    утонули бы среди них.
+    """
+    prices = sorted(i["price"] for i in items if i.get("price", 0) > 0)
+    if len(prices) < MIN_STATS_SAMPLE:
+        return None
+    return int(statistics.median(prices))
+
+
+def rate_deal(item: dict, query: str, category: str | None = None,
+              page_ref: int | None = None) -> tuple[bool, str]:
+    """Решает, стоит ли будить владельца из-за этого лота.
+
+    page_ref - медиана текущей страницы выдачи. Нужна, пока своей истории
+    по слову ещё нет: без неё первые недели бот либо молчал бы совсем, либо
+    слал всё подряд.
+    """
     price = item["price"]
     low, high = price_band(category if category is not None else category_of(query))
     if price > high or price < low:
@@ -802,16 +871,27 @@ def rate_deal(item: dict, query: str, category: str | None = None) -> tuple[bool
         return False, ""
 
     median, sample = median_price(query)
-    if median is None:
-        # Статистики ещё нет - первые дни шлём всё в рамках бюджета,
-        # заодно так быстрее набирается выборка.
-        return True, f"статистика копится ({sample} шт.)"
+    if median is not None:
+        ratio = price / median
+        if ratio <= DEAL_RATIO:
+            return True, f"🔥 −{int((1 - ratio) * 100)}% к медиане {median:,} ₽".replace(",", " ")
+        if ratio <= 0.8:
+            return True, f"ниже рынка на {int((1 - ratio) * 100)}% (медиана {median:,} ₽)".replace(",", " ")
+        return False, ""
 
-    ratio = price / median
-    if ratio <= DEAL_RATIO:
-        return True, f"🔥 −{int((1 - ratio) * 100)}% к медиане {median:,} ₽".replace(",", " ")
-    if ratio <= 0.8:
-        return True, f"ниже рынка на {int((1 - ratio) * 100)}% (медиана {median:,} ₽)".replace(",", " ")
+    if page_ref:
+        # Со страницей спрос строже, чем с накопленной историей: полсотни
+        # объявлений - срез грубый, там вперемешку разные модели и
+        # состояния. Поэтому будим только на явной разнице, а «чуть ниже
+        # рынка» пропускаем молча - в историю оно всё равно ляжет.
+        ratio = price / page_ref
+        if ratio <= DEAL_RATIO:
+            return True, (f"🔥 −{int((1 - ratio) * 100)}% к сегодняшней выдаче "
+                          f"({page_ref:,} ₽)".replace(",", " "))
+        return False, ""
+
+    # Ни истории, ни страницы - судить не по чему. Молчим: лот всё равно
+    # уже в базе и завтра поучаствует в расчёте.
     return False, ""
 
 
@@ -1023,11 +1103,20 @@ async def monitor_loop(bot):
 
                 backoff = 0
                 items = parse_search(html)
+
+                # Срез рынка на сегодня считается по всей странице, а не по
+                # одним новинкам: свежих объявлений в круге бывает две-три,
+                # и медиана по ним ничего не значила бы.
+                page_ref = page_median([
+                    i for i in items
+                    if not is_junk(i["title"]) and matches_query(i["title"], query)
+                ])
+
                 fresh = save_items(cat_key, query, items)
                 found_total += len(fresh)
 
                 for item in fresh:
-                    good, note = rate_deal(item, query, cat_key)
+                    good, note = rate_deal(item, query, cat_key, page_ref)
                     if not good:
                         continue
                     try:
