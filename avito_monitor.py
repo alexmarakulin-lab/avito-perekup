@@ -629,6 +629,53 @@ def parse_from_json(html: str) -> list:
     return items
 
 
+# Возраст объявления Авито пишет словами: «2 минуты назад», «Вчера»,
+# «3 дня назад». Точного времени нет нигде - ни в атрибутах, ни в JSON,
+# проверено 13.08.2026. Слов достаточно: нам важно отличить «только что»
+# от «неделю висит», а не секунды.
+AGE_UNITS = [
+    ("секунд", 0),
+    ("минут", 1),
+    ("час", 60),
+    ("дня", 1440), ("дней", 1440), ("день", 1440),
+    ("недел", 10080),
+    ("месяц", 43200),
+]
+
+
+def parse_age(text: str) -> int | None:
+    """Сколько минут назад выложено. None - не разобрали.
+
+    Свежесть для перекупа решает всё: лот дешевле рынка живёт минуты, и
+    разница между «выложено 5 минут назад» и «висит третий день» - это
+    разница между находкой и тем, что уже сто раз посмотрели и не взяли.
+    """
+    if not text:
+        return None
+    low = text.lower().replace("ё", "е")
+    if "вчера" in low:
+        return 1440
+    if "сегодня" in low:
+        return 0
+    number = re.search(r"\d+", low)
+    for word, minutes in AGE_UNITS:
+        if word in low:
+            return int(number.group()) * minutes if number else minutes
+    return None
+
+
+def human_age(minutes: int | None) -> str:
+    """Возраст словами, для сообщения."""
+    if minutes is None:
+        return ""
+    if minutes < 60:
+        return f"{minutes} мин назад"
+    if minutes < 1440:
+        return f"{minutes // 60} ч назад"
+    days = minutes // 1440
+    return "вчера" if days == 1 else f"{days} дн назад"
+
+
 def parse_from_dom(html: str) -> list:
     """Запасная стратегия: разбор разметки по data-marker."""
     if not BS4_AVAILABLE:
@@ -648,13 +695,24 @@ def parse_from_dom(html: str) -> list:
             price = _parse_price(price_text.get_text() if price_text else None)
 
         href = title_el.get("href", "")
-        addr_el = block.select_one('[class*="geo-address"], [data-marker="item-address"]')
+        # Район лежит под item-location. Прежний отбор искал item-address и
+        # geo-address - таких имён на карточке нет вовсе, и адрес всё это
+        # время приходил пустым. Молча: пустая строка ошибкой не выглядит.
+        addr_el = block.select_one('[data-marker="item-location"]')
+        date_el = block.select_one('[data-marker="item-date"]')
+        score_el = block.select_one('[data-marker="seller-rating/score"]')
+        reviews_el = block.select_one('[data-marker="seller-info/summary"]')
+
         items.append({
             "item_id": str(item_id),
             "title": title_el.get_text(strip=True),
             "price": price,
             "url": item_url(href),
-            "address": addr_el.get_text(strip=True) if addr_el else "",
+            "address": addr_el.get_text(" ", strip=True) if addr_el else "",
+            # Дальше - то, что нужно для оценки лота, а не для его поиска.
+            "age_min": parse_age(date_el.get_text(" ", strip=True) if date_el else ""),
+            "seller_score": score_el.get_text(strip=True) if score_el else "",
+            "seller_reviews": reviews_el.get_text(" ", strip=True) if reviews_el else "",
         })
     return items
 
@@ -851,6 +909,12 @@ def page_median(items: list) -> int | None:
     return int(statistics.median(prices))
 
 
+def market_reference(query: str, page_ref: int | None = None) -> int | None:
+    """С чем сравниваем цену: накопленная медиана, а нет её - сегодняшняя выдача."""
+    median, _ = median_price(query)
+    return median if median is not None else page_ref
+
+
 def rate_deal(item: dict, query: str, category: str | None = None,
               page_ref: int | None = None) -> tuple[bool, str]:
     """Решает, стоит ли будить владельца из-за этого лота.
@@ -870,13 +934,17 @@ def rate_deal(item: dict, query: str, category: str | None = None,
     if not matches_query(item["title"], query):
         return False, ""
 
+    # Цифры сюда не пишем: разницу с рынком показывает само уведомление,
+    # одной строкой. Написанная дважды, она вдобавок расходилась в
+    # округлении - одна и та же скидка выходила и −79%, и −78%, и выглядело
+    # это как ошибка расчёта.
     median, sample = median_price(query)
     if median is not None:
         ratio = price / median
         if ratio <= DEAL_RATIO:
-            return True, f"🔥 −{int((1 - ratio) * 100)}% к медиане {median:,} ₽".replace(",", " ")
+            return True, f"🔥 заметно дешевле медианы за {STATS_WINDOW_DAYS} дн ({sample} набл.)"
         if ratio <= 0.8:
-            return True, f"ниже рынка на {int((1 - ratio) * 100)}% (медиана {median:,} ₽)".replace(",", " ")
+            return True, f"ниже медианы за {STATS_WINDOW_DAYS} дн ({sample} набл.)"
         return False, ""
 
     if page_ref:
@@ -884,10 +952,8 @@ def rate_deal(item: dict, query: str, category: str | None = None,
         # объявлений - срез грубый, там вперемешку разные модели и
         # состояния. Поэтому будим только на явной разнице, а «чуть ниже
         # рынка» пропускаем молча - в историю оно всё равно ляжет.
-        ratio = price / page_ref
-        if ratio <= DEAL_RATIO:
-            return True, (f"🔥 −{int((1 - ratio) * 100)}% к сегодняшней выдаче "
-                          f"({page_ref:,} ₽)".replace(",", " "))
+        if price / page_ref <= DEAL_RATIO:
+            return True, "🔥 заметно дешевле сегодняшней выдачи (истории пока нет)"
         return False, ""
 
     # Ни истории, ни страницы - судить не по чему. Молчим: лот всё равно
@@ -896,21 +962,65 @@ def rate_deal(item: dict, query: str, category: str | None = None,
 
 
 # ========== ОТПРАВКА ==========
-async def send_alert(bot, chat_id: int, item: dict, category: str, note: str):
-    cat = CATEGORIES.get(category, {})
-    text = (
-        f"{cat.get('emoji', '📦')} <b>{cat.get('name', category)}</b>\n\n"
-        f"{item['title']}\n"
-        f"<b>{item['price']:,} ₽</b>".replace(",", " ") + "\n"
-    )
-    if item.get("address"):
-        text += f"📍 {item['address']}\n"
-    if note:
-        text += f"\n{note}\n"
-    text += f"\n{item['url']}"
+def build_alert(item: dict, category: str, note: str,
+                market: int | None = None) -> str:
+    """Собирает подробное уведомление о находке.
 
-    await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML",
-                           disable_web_page_preview=False)
+    Три строки «название, цена, ссылка» решения не дают: чтобы понять,
+    ехать или нет, нужно видеть разницу с рынком, свежесть и с кем имеешь
+    дело. Всё это на карточке есть, и не показывать его - значит заставлять
+    открывать объявление ради того, что уже известно.
+    """
+    cat = CATEGORIES.get(category, {})
+    money = lambda n: f"{n:,}".replace(",", " ")
+
+    lines = [f"{cat.get('emoji', '📦')} <b>{cat.get('name', category)}</b>",
+             "", item["title"], ""]
+
+    if market:
+        diff = market - item["price"]
+        share = int(round(diff / market * 100))
+        lines.append(f"💰 <b>{money(item['price'])} ₽</b>  "
+                     f"<s>{money(market)} ₽</s>  −{share}%")
+        # Разница с рынком - это потолок навара, а не навар: доставка, торг
+        # при перепродаже и время съедят часть. Так и подписано.
+        lines.append(f"📈 разница с рынком: <b>{money(diff)} ₽</b> до вычета хлопот")
+    else:
+        lines.append(f"💰 <b>{money(item['price'])} ₽</b>")
+
+    age = item.get("age_min")
+    if age is not None:
+        # Свежее объявление - это и есть весь смысл затеи: дешёвый лот
+        # живёт минуты. Отмечаем отдельно, чтобы было видно с первого взгляда.
+        mark = "🕐"
+        if age <= 30:
+            mark = "⚡️ <b>только что</b>,"
+        elif age >= 1440:
+            mark = "🐌"
+        lines.append(f"{mark} {human_age(age)}")
+
+    if item.get("address"):
+        lines.append(f"📍 {item['address']}")
+
+    score, reviews = item.get("seller_score", ""), item.get("seller_reviews", "")
+    seller = " · ".join(x for x in (f"{score} ★" if score else "", reviews) if x)
+    if seller:
+        lines.append(f"👤 {seller}")
+
+    if note:
+        lines.append("")
+        lines.append(note)
+
+    lines.append("")
+    lines.append(item["url"])
+    return "\n".join(lines)
+
+
+async def send_alert(bot, chat_id: int, item: dict, category: str, note: str,
+                     market: int | None = None):
+    await bot.send_message(chat_id=chat_id,
+                           text=build_alert(item, category, note, market),
+                           parse_mode="HTML", disable_web_page_preview=False)
     with _connect() as conn:
         conn.execute("UPDATE items SET alerted = 1 WHERE item_id = ?", (item["item_id"],))
 
@@ -1115,12 +1225,20 @@ async def monitor_loop(bot):
                 fresh = save_items(cat_key, query, items)
                 found_total += len(fresh)
 
+                market = market_reference(query, page_ref)
+
+                # Самые свежие - первыми. Если в круге нашлось несколько
+                # находок, порядок сообщений решает: пока читаешь про то,
+                # что висит третий день, лот пятиминутной давности уходит.
+                fresh.sort(key=lambda i: (i.get("age_min") is None,
+                                          i.get("age_min") or 0))
+
                 for item in fresh:
                     good, note = rate_deal(item, query, cat_key, page_ref)
                     if not good:
                         continue
                     try:
-                        await send_alert(bot, chat_id, item, cat_key, note)
+                        await send_alert(bot, chat_id, item, cat_key, note, market)
                     except Exception as exc:
                         logger.error(f"Монитор Авито: не отправил алерт ({exc})")
 

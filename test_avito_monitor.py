@@ -112,6 +112,61 @@ check("parse_search: fallback на DOM", len(am.parse_search(html_dom)) == 2)
 check("parse_search: приоритет JSON", len(am.parse_search(html_json)) == 3)
 check("parse_search: мусорная страница -> пусто", am.parse_search("<html>ничего</html>") == [])
 
+# --- свежесть и подробности карточки ---
+# Свежесть для перекупа решает всё: дешёвый лот живёт минуты. Авито пишет
+# время словами, точного нигде нет - проверено на живой странице 13.08.2026.
+check("возраст: минуты", am.parse_age("2 минуты назад") == 2)
+check("возраст: часы", am.parse_age("5 часов назад") == 300)
+check("возраст: вчера", am.parse_age("Вчера") == 1440)
+check("возраст: дни", am.parse_age("3 дня назад") == 4320)
+check("возраст: неделя", am.parse_age("2 недели назад") == 20160)
+check("возраст: пусто не роняет", am.parse_age("") is None and am.parse_age("шут его знает") is None)
+check("возраст: словами для человека",
+      (am.human_age(8), am.human_age(300), am.human_age(1440), am.human_age(4320))
+      == ("8 мин назад", "5 ч назад", "вчера", "3 дн назад"),
+      (am.human_age(8), am.human_age(300), am.human_age(1440), am.human_age(4320)))
+
+# Район лежит под item-location. Прежний отбор искал имена, которых на
+# карточке нет вовсе, и адрес молча приходил пустым - на живой выдаче это
+# заметили только сейчас.
+html_card = """
+<div data-marker="item" data-item-id="7001">
+  <a data-marker="item-title" href="/krasnodar/p_7001"><h3>Перфоратор deko</h3></a>
+  <meta itemprop="price" content="600">
+  <p data-marker="item-date">2 минуты назад</p>
+  <div data-marker="item-location">р-н Прикубанский</div>
+  <span data-marker="seller-rating/score">5,0</span>
+  <span data-marker="seller-info/summary">9 отзывов</span>
+</div>
+"""
+card = am.parse_from_dom(html_card)[0]
+check("карточка: район вытащен", card["address"] == "р-н Прикубанский", card["address"])
+check("карточка: возраст вытащен", card["age_min"] == 2, card["age_min"])
+check("карточка: рейтинг продавца", card["seller_score"] == "5,0", card["seller_score"])
+check("карточка: отзывы продавца", card["seller_reviews"] == "9 отзывов", card["seller_reviews"])
+
+# Карточка без этих полей встречается сплошь и рядом - падать нельзя.
+bare = am.parse_from_dom(
+    '<div data-marker="item" data-item-id="7002">'
+    '<a data-marker="item-title" href="/krasnodar/p_7002"><h3>Диван</h3></a>'
+    '<meta itemprop="price" content="4000"></div>')[0]
+check("карточка: без подробностей не падает",
+      bare["age_min"] is None and bare["address"] == "" and bare["seller_score"] == "")
+
+alert = am.build_alert(card, "instrument", "🔥 −82% к сегодняшней выдаче", market=3400)
+check("уведомление: цена и рынок рядом", "600 ₽" in alert and "3 400 ₽" in alert, alert)
+check("уведомление: показана разница в рублях", "2 800 ₽" in alert, alert)
+check("уведомление: свежее помечено особо", "только что" in alert, alert)
+check("уведомление: район на месте", "Прикубанский" in alert)
+check("уведомление: продавец на месте", "5,0" in alert and "9 отзывов" in alert)
+check("уведомление: ссылка на месте", card["url"] in alert)
+
+stale = dict(card, age_min=4320)
+check("уведомление: залежавшееся помечено иначе",
+      "🐌" in am.build_alert(stale, "instrument", "", market=3400))
+check("уведомление: без рынка не выдумывает разницу",
+      "разница с рынком" not in am.build_alert(bare, "home", ""))
+
 # --- мусорные слова ---
 check("мусор: 'на запчасти' отсеян", am.is_junk("Перфоратор Makita на запчасти"))
 check("мусор: 'куплю' отсеян", am.is_junk("Куплю перфоратор дорого"))
@@ -192,7 +247,7 @@ check("страница: на горстке цен медиана не счит
 good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 1500},
                           "перфоратор", page_ref=3400)
 check("отбор: без истории дешёвое видно по сегодняшней выдаче",
-      good and "выдаче" in note, note)
+      good and "выдачи" in note, note)
 good, _ = am.rate_deal({"title": "Перфоратор Bosch", "price": 3200},
                        "перфоратор", page_ref=3400)
 check("отбор: без истории обычная цена не будит", not good)
@@ -215,7 +270,7 @@ check("медиана: считается на выборке", median == 4000 a
 good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 2000}, "перфоратор")
 check("отбор: 50% от медианы -> горячий лот", good and "🔥" in note, note)
 good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 3000}, "перфоратор")
-check("отбор: 75% от медианы -> ниже рынка", good and "ниже рынка" in note, note)
+check("отбор: 75% от медианы -> ниже рынка", good and "ниже медианы" in note, note)
 good, note = am.rate_deal({"title": "Перфоратор Bosch", "price": 3900}, "перфоратор")
 check("отбор: цена рынка -> не будим", not good, note)
 
