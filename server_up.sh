@@ -106,16 +106,23 @@ say "3/5  Собираю образ. Это 5-15 минут, качается б
 MIRROR_PIP="https://pypi.tuna.tsinghua.edu.cn/simple"
 MIRROR_PW="https://npmmirror.com/mirrors/playwright/"
 
+# Зеркало пробуется уже со второй попытки, а не с третьей.
+#
+# На живом запуске 13.08.2026 первая попытка провисела 22 минуты и
+# собиралась висеть ещё столько же: pip честно отрабатывал двадцать
+# заходов по минуте. А pypi.org с этого сервера закрыт не по случаю, и
+# ждать его бессмысленно - зеркало отвечает сразу. Правило простое: один
+# заход на прямой адрес, дальше в обход.
 built=0
 for attempt in 1 2 3; do
-    if [ "$attempt" = 3 ]; then
+    if [ "$attempt" = 1 ]; then
         echo
-        echo "  Попытка 3: беру библиотеки с зеркала, раз pypi.org не отвечает."
-        args="--build-arg PIP_INDEX=${MIRROR_PIP} --build-arg PW_HOST=${MIRROR_PW}"
+        echo "  Попытка 1: беру библиотеки с pypi.org"
+        args=""
     else
         echo
-        echo "  Попытка ${attempt} из 3..."
-        args=""
+        echo "  Попытка ${attempt}: через зеркало, раз pypi.org не отвечает."
+        args="--build-arg PIP_INDEX=${MIRROR_PIP} --build-arg PW_HOST=${MIRROR_PW}"
     fi
 
     # shellcheck disable=SC2086
