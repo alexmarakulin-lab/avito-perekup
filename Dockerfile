@@ -39,10 +39,21 @@ RUN pip install --no-cache-dir --retries 5 --timeout 20 \
 #
 # PLAYWRIGHT_DOWNLOAD_HOST - на случай, если и до склада браузеров с этого
 # сервера не достучаться. Пустая переменная означает «бери откуда обычно».
+# Установка обёрнута в timeout и «не падать», а следом идёт прямая проверка
+# наличия браузера. Причина - живая сборка 13.08.2026: Chromium скачался
+# целиком, после чего установщик полез за FFmpeg и завис на нём почти на
+# четыре часа. FFmpeg нужен для записи видео с экрана, нам он не нужен
+# вовсе, но без «не падать» его неудача уронила бы всю сборку, а без
+# timeout - подвесила бы её навсегда.
+#
+# Отсюда и проверка отдельной строкой: раз мы разрешили установщику
+# оступиться, надо самим убедиться, что главное на месте. Иначе получился
+# бы образ без браузера, и выяснилось бы это уже на сервере.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb \
-    && PLAYWRIGHT_DOWNLOAD_HOST="$PW_HOST" \
-       python3 -m playwright install --with-deps chromium \
+    && (timeout 2400 env PLAYWRIGHT_DOWNLOAD_HOST="$PW_HOST" \
+        python3 -m playwright install --with-deps chromium || true) \
+    && ls /root/.cache/ms-playwright/chromium-*/chrome-linux/chrome \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entry.sh avito_bot.py avito_monitor.py avito_browser.py \
