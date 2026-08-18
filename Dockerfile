@@ -49,11 +49,19 @@ RUN pip install --no-cache-dir --retries 5 --timeout 20 \
 # Отсюда и проверка отдельной строкой: раз мы разрешили установщику
 # оступиться, надо самим убедиться, что главное на месте. Иначе получился
 # бы образ без браузера, и выяснилось бы это уже на сервере.
+#
+# В проверке звёздочка после chrome-linux не для красоты: Playwright кладёт
+# браузер то в chrome-linux, то в chrome-linux64 - смотря какую сборку
+# качает. Первая версия проверки знала только один путь и забраковала бы
+# исправно скачанный браузер.
+#
+# Предел времени - полтора часа. Сорока минут не хватило: через прокси
+# Chromium едет медленно, и срезало его на середине.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb \
-    && (timeout 2400 env PLAYWRIGHT_DOWNLOAD_HOST="$PW_HOST" \
+    && (timeout 5400 env PLAYWRIGHT_DOWNLOAD_HOST="$PW_HOST" \
         python3 -m playwright install --with-deps chromium || true) \
-    && ls /root/.cache/ms-playwright/chromium-*/chrome-linux/chrome \
+    && ls /root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entry.sh avito_bot.py avito_monitor.py avito_browser.py \
