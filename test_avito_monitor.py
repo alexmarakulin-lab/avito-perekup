@@ -534,6 +534,70 @@ async def test_choice_runs():
 
 asyncio.run(test_choice_runs())
 
+# --- вторая площадка: Wildberries ---
+# Проверено 13.08.2026 живым браузером: WB отдаёт 40 карточек, Ozon - 403
+# «нет соединения», Яндекс Маркет - 403 «похоже, вы используете VPN».
+# Поэтому площадки две, а не четыре.
+import wb_source as wb
+
+wb_html = """
+<article>
+  <a href="https://www.wildberries.ru/catalog/1212147831/detail.aspx?x=1"></a>
+  <div class="product-card__price price">
+    <ins>41 468 ₽</ins><del>106 058 ₽</del>
+  </div>
+  <div class="wrap">
+    <span class="brandContainer--b1Fxa">Apple</span><span>/</span>
+    <span>Смартфон iPhone 15 128 ГБ, черный Восстановленный</span>
+  </div>
+  <span class="ratingContent--ZYqdV">5 · 2 оценки</span>
+</article>
+"""
+wb_items = wb.parse(wb_html)
+check("WB: карточка разобрана", len(wb_items) == 1, len(wb_items))
+if wb_items:
+    w = wb_items[0]
+    check("WB: цена", w["price"] == 41468, w["price"])
+    check("WB: марка и название вместе",
+          w["title"] == "Apple Смартфон iPhone 15 128 ГБ, черный Восстановленный", w["title"])
+    check("WB: ссылка без хвоста",
+          w["url"] == "https://www.wildberries.ru/catalog/1212147831/detail.aspx", w["url"])
+    # Номера товаров WB и объявлений Авито в одной базе; без приставки они
+    # рано или поздно совпали бы, и одно затёрло бы другое.
+    check("WB: номер с приставкой, чтобы не столкнуться с Авито",
+          w["item_id"] == "wb1212147831", w["item_id"])
+    check("WB: рейтинг снят", "5" in w["seller_score"], w["seller_score"])
+    # Старая цена нарисованная: iPhone 15 никогда не стоил 106 058 ₽.
+    # Забираем для показа, но судить по ней нельзя.
+    check("WB: старая цена сохранена отдельно", w["old_price"] == 106058, w["old_price"])
+
+check("WB: пустая страница не роняет разбор", wb.parse("<html>ничего</html>") == [])
+check("WB: заслон распознан",
+      wb.is_blocked("<html>Похоже, нет соединения</html>"))
+check("WB: выдача заслоном не считается", not wb.is_blocked(wb_html))
+check("WB: адрес поиска со словом и сортировкой по новизне",
+      "search=iphone" in wb.build_search_url("iphone") and
+      "sort=newly" in wb.build_search_url("iphone"), wb.build_search_url("iphone"))
+
+check("площадка: у категории WB источник wb", am.source_of("wb_apple") == "wb")
+check("площадка: у обычной категории источник авито",
+      am.source_of("instrument") == "avito" and am.source_of(None) == "avito")
+
+# Цены копятся порознь. «iphone» с рук и «iphone» из магазина - разные
+# рынки; общая медиана врала бы обоим сразу.
+check("площадка: имя для статистики у WB своё",
+      am.stats_key("wb", "iphone") == "wb:iphone")
+check("площадка: у Авито имя прежнее, старая история не потеряется",
+      am.stats_key("avito", "перфоратор") == "перфоратор")
+
+check("площадка: адрес поиска WB строится через wb_source",
+      "wildberries.ru" in am.build_search_url("iphone", "wb_apple"),
+      am.build_search_url("iphone", "wb_apple"))
+check("площадка: адрес Авито не изменился",
+      "avito.ru" in am.build_search_url("перфоратор"), am.build_search_url("перфоратор"))
+check("площадка: разбор выбирается по источнику",
+      len(am.parse_search(wb_html, "wb")) == 1 and len(am.parse_search(html_dom)) == 2)
+
 # --- URL поиска ---
 url = am.build_search_url("сплит система")
 check("URL: регион", "/krasnodar?" in url, url)

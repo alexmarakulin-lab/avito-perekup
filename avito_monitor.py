@@ -41,6 +41,7 @@ except ImportError:
 # библиотека его не выполняет. Единственный способ, который Авито пропустил, -
 # настоящий видимый браузер. Подробности и замеры - в avito_browser.py.
 import avito_browser
+import wb_source
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,48 @@ CATEGORIES = {
         "max_price": 45000,
         "queries": [
             "apple watch",
+        ],
+    },
+    # ===== Wildberries =====
+    # Вторая площадка. Ozon и Яндекс Маркет проверены настоящим браузером и
+    # не читаются: 403 и свои проверки. Подробности и замеры - в wb_source.py.
+    "wb_apple": {
+        "name": "WB · Apple",
+        "emoji": "🍏",
+        "source": "wb",
+        "min_price": 5000,
+        "max_price": 150000,
+        "queries": [
+            "iphone",
+            "ipad",
+            "macbook",
+            "apple watch",
+            "airpods",
+        ],
+    },
+    "wb_shoes": {
+        "name": "WB · Обувь",
+        "emoji": "👟",
+        "source": "wb",
+        "min_price": 3000,
+        "max_price": 30000,
+        "queries": [
+            "кроссовки nike",
+            "кроссовки adidas",
+            "кроссовки new balance",
+        ],
+    },
+    "wb_clothes": {
+        "name": "WB · Одежда",
+        "emoji": "🧥",
+        "source": "wb",
+        "min_price": 3000,
+        "max_price": 40000,
+        "queries": [
+            "куртка carhartt",
+            "худи stone island",
+            "джинсы levis",
+            "ветровка the north face",
         ],
     },
 }
@@ -410,10 +453,15 @@ def _proxies() -> dict | None:
     return {"http": AVITO_PROXY, "https": AVITO_PROXY} if AVITO_PROXY else None
 
 
-async def _fetch_once(url: str) -> tuple[int, str]:
+async def _fetch_once(url: str, source: str = "avito") -> tuple[int, str]:
     """Один заход на страницу. Возвращает код ответа и текст."""
     global _cffi_session
     if USE_BROWSER:
+        if source == "wb":
+            # Своя примета готовности и без прогрева: заход на главную нужен
+            # защите Авито, для Wildberries это лишний запрос.
+            return await avito_browser.fetch(url, wait_for=wb_source.CARDS_SELECTOR,
+                                             warm=False)
         return await avito_browser.fetch(url)
     if USE_CFFI:
         if _cffi_session is None:
@@ -452,9 +500,13 @@ def _headers() -> dict:
 def build_search_url(query: str, category: str | None = None) -> str:
     # s=104 - сортировка "сначала новые", это ключевое: свежие лоты живут минуты.
     #
+    cat = category if category is not None else category_of(query)
+    if source_of(cat) == "wb":
+        return wb_source.build_search_url(query)
+
     # Вилка цен уходит прямо в адрес: это не только отбор, но и экономия -
     # чем уже коридор, тем меньше чужого приезжает вместе со страницей.
-    low, high = price_band(category if category is not None else category_of(query))
+    low, high = price_band(cat)
     return (
         f"https://www.avito.ru/{AVITO_REGION}"
         f"?q={quote(query)}&pmax={high}&pmin={low}"
@@ -477,7 +529,7 @@ def is_home_page(html: str) -> bool:
     return "объявления на сайте авито" in title and 'data-marker="item"' not in html
 
 
-async def fetch_html(url: str) -> str:
+async def fetch_html(url: str, source: str = "avito") -> str:
     """Забирает страницу Авито, переживая капчу Qrator.
 
     Капча с первого захода - обычное дело, а не приговор: вместе с ней
@@ -487,8 +539,19 @@ async def fetch_html(url: str) -> str:
     last = ""
     LAST_TRACE.clear()
     for attempt in range(1, RETRY_ATTEMPTS + 1):
-        status, html = await _fetch_once(url)
+        status, html = await _fetch_once(url, source)
         LAST_TRACE.append(f"попытка {attempt}: HTTP {status}, {len(html)} симв.")
+
+        if source == "wb":
+            # У Wildberries свои приметы заслона, а проверка на подмену
+            # главной - чисто авитовская, и здесь только мешала бы.
+            if wb_source.is_blocked(html):
+                last = f"Wildberries закрылся, попыток {attempt}"
+                if attempt < RETRY_ATTEMPTS:
+                    await asyncio.sleep(RETRY_DELAY * attempt)
+                    continue
+                raise AvitoBlocked(last)
+            return html
 
         low = html.lower()
         # Заслон Qrator приходит с кодом 429, но это не "частим запросами":
@@ -717,7 +780,13 @@ def parse_from_dom(html: str) -> list:
     return items
 
 
-def parse_search(html: str) -> list:
+def parse_search(html: str, source: str = "avito") -> list:
+    if source == "wb":
+        return wb_source.parse(html)
+    return _parse_avito(html)
+
+
+def _parse_avito(html: str) -> list:
     """JSON сначала, разметка - как страховка. Пустой список = вёрстка сменилась."""
     items = parse_from_json(html)
     source = "json"
@@ -766,6 +835,22 @@ def category_of(query: str) -> str | None:
         if query in cat["queries"]:
             return key
     return None
+
+
+def source_of(category: str | None) -> str:
+    """С какой площадки категория. Умолчание - Авито, как было всегда."""
+    return CATEGORIES.get(category or "", {}).get("source", "avito")
+
+
+def stats_key(source: str, query: str) -> str:
+    """Под каким именем копить цены.
+
+    Площадка входит в имя, и это не украшение. «iphone» на Авито - это б/у
+    с рук, на Wildberries - восстановленный из магазина. Свалив их в одну
+    кучу, мы получили бы медиану, которой нет на рынке, и оба ряда находок
+    оценивались бы неверно.
+    """
+    return query if source == "avito" else f"{source}:{query}"
 
 
 def price_band(category: str | None = None) -> tuple[int, int]:
@@ -909,14 +994,15 @@ def page_median(items: list) -> int | None:
     return int(statistics.median(prices))
 
 
-def market_reference(query: str, page_ref: int | None = None) -> int | None:
+def market_reference(key: str, page_ref: int | None = None) -> int | None:
     """С чем сравниваем цену: накопленная медиана, а нет её - сегодняшняя выдача."""
-    median, _ = median_price(query)
+    median, _ = median_price(key)
     return median if median is not None else page_ref
 
 
 def rate_deal(item: dict, query: str, category: str | None = None,
-              page_ref: int | None = None) -> tuple[bool, str]:
+              page_ref: int | None = None,
+              key: str | None = None) -> tuple[bool, str]:
     """Решает, стоит ли будить владельца из-за этого лота.
 
     page_ref - медиана текущей страницы выдачи. Нужна, пока своей истории
@@ -938,7 +1024,9 @@ def rate_deal(item: dict, query: str, category: str | None = None,
     # одной строкой. Написанная дважды, она вдобавок расходилась в
     # округлении - одна и та же скидка выходила и −79%, и −78%, и выглядело
     # это как ошибка расчёта.
-    median, sample = median_price(query)
+    # Имя, под которым копятся цены. У Wildberries оно своё: «iphone» с рук
+    # и «iphone» из магазина - разные рынки, и общая медиана врала бы обоим.
+    median, sample = median_price(key or query)
     if median is not None:
         ratio = price / median
         if ratio <= DEAL_RATIO:
@@ -1194,8 +1282,10 @@ async def monitor_loop(bot):
 
             found_total = 0
             for cat_key, query in take_queries():
+                source = source_of(cat_key)
+                key = stats_key(source, query)
                 try:
-                    html = await fetch_html(build_search_url(query, cat_key))
+                    html = await fetch_html(build_search_url(query, cat_key), source)
                 except AvitoBlocked as exc:
                     backoff = min(backoff * 2 or 300, 3600)
                     logger.warning(f"Монитор Авито: {exc}. Пауза {backoff} с")
@@ -1212,7 +1302,7 @@ async def monitor_loop(bot):
                     continue
 
                 backoff = 0
-                items = parse_search(html)
+                items = parse_search(html, source)
 
                 # Срез рынка на сегодня считается по всей странице, а не по
                 # одним новинкам: свежих объявлений в круге бывает две-три,
@@ -1222,10 +1312,10 @@ async def monitor_loop(bot):
                     if not is_junk(i["title"]) and matches_query(i["title"], query)
                 ])
 
-                fresh = save_items(cat_key, query, items)
+                fresh = save_items(cat_key, key, items)
                 found_total += len(fresh)
 
-                market = market_reference(query, page_ref)
+                market = market_reference(key, page_ref)
 
                 # Самые свежие - первыми. Если в круге нашлось несколько
                 # находок, порядок сообщений решает: пока читаешь про то,
@@ -1234,7 +1324,7 @@ async def monitor_loop(bot):
                                           i.get("age_min") or 0))
 
                 for item in fresh:
-                    good, note = rate_deal(item, query, cat_key, page_ref)
+                    good, note = rate_deal(item, query, cat_key, page_ref, key)
                     if not good:
                         continue
                     try:

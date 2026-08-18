@@ -68,6 +68,9 @@ CARDS_TIMEOUT = float(os.getenv("AVITO_BROWSER_CARDS_TIMEOUT", "12")) * 1000
 # Прокси браузеру передаётся отдельно: у Playwright свой формат.
 PROXY = os.getenv("AVITO_PROXY", "").strip()
 
+# По какой примете считать, что товары дорисовались. Умолчание - для Авито.
+CARDS_SELECTOR = '[data-marker="item"]'
+
 REGION = os.getenv("AVITO_REGION", "krasnodar")
 HOME_URL = f"https://www.avito.ru/{REGION}"
 
@@ -220,34 +223,42 @@ async def _warmup(page):
     _warmed = True
 
 
-async def fetch(url: str) -> tuple[int, str]:
+async def fetch(url: str, wait_for: str = CARDS_SELECTOR,
+                warm: bool = True) -> tuple[int, str]:
     """Открывает адрес во вкладке и отдаёт код ответа и готовую разметку.
 
     Возвращает ровно то же, что и запрос по http, - пару «код, текст».
     Поэтому разбор выдачи, проверка на капчу и подсчёт карточек в мониторе
     остаются прежними: подменяется только способ добычи страницы.
+
+    wait_for - по какой примете понять, что товары дорисовались. У Авито
+    это data-marker="item", у Wildberries обычный article. Без этого
+    браузер отдал бы пустой каркас, и выглядело бы это как «товаров нет».
+
+    warm - заходить ли сперва на главную за пропуском. Нужно Авито с его
+    защитой; на другие площадки это лишний запрос.
     """
     # Вкладка одна на всё время работы, поэтому два запроса разом её бы
     # поломали - держим очередь.
     async with _lock:
         page = await _ensure_page()
 
-        if not _warmed:
+        if warm and not _warmed:
             await _warmup(page)
 
-        status, html = await _open(page, url)
+        status, html = await _open(page, url, wait_for)
 
         # Заслон после прогрева обычно значит, что пропуск протух. Один
         # повтор через главную дешевле, чем ждать следующего круга.
-        if _looks_blocked(status, html):
+        if warm and _looks_blocked(status, html):
             logger.debug("Монитор Авито: заслон, прогреваюсь заново")
             await _warmup(page)
-            status, html = await _open(page, url)
+            status, html = await _open(page, url, wait_for)
 
         return status, html
 
 
-async def _open(page, url: str) -> tuple[int, str]:
+async def _open(page, url: str, wait_for: str = CARDS_SELECTOR) -> tuple[int, str]:
     response = await page.goto(url, wait_until="domcontentloaded")
     # Карточки дорисовываются javascript'ом уже после разметки, поэтому
     # забирать содержимое сразу - значит регулярно получать пустую выдачу на
@@ -255,7 +266,7 @@ async def _open(page, url: str) -> tuple[int, str]:
     # пустая выдача карточек не содержат, и их надо вернуть наверх, а не
     # свалиться в ошибку.
     try:
-        await page.wait_for_selector('[data-marker="item"]', timeout=CARDS_TIMEOUT)
+        await page.wait_for_selector(wait_for, timeout=CARDS_TIMEOUT)
     except Exception:
         logger.debug("Монитор Авито: карточки не появились за отведённое время")
     return (response.status if response else 0), await page.content()

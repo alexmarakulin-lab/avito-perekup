@@ -46,7 +46,7 @@ RUN apt-get update \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entry.sh avito_bot.py avito_monitor.py avito_browser.py \
-     resale_expert.py check_avito.py env_file.py \
+     wb_source.py resale_expert.py check_avito.py env_file.py \
      test_avito_monitor.py test_avito_bot.py test_resale_expert.py ./
 
 # Читаем Авито браузером - так же, как дома.
