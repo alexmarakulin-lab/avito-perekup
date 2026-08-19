@@ -495,8 +495,8 @@ async def test_choice_runs():
     """Нажатие кнопки должно привести к проверке слова именно этой категории."""
     asked = []
 
-    async def fake_self_test(query):
-        asked.append(query)
+    async def fake_self_test(query, category=None):
+        asked.append((query, category))
         return "готово"
 
     class FakeMessage:
@@ -517,8 +517,10 @@ async def test_choice_runs():
         await am.on_test_choice(upd, None)
         check("выбор: нажатие подтверждено, иначе на кнопке висят часики",
               upd.callback_query.answered)
+        # Категория передаётся вместе со словом, а не угадывается по нему:
+        # «apple watch» есть и у Авито, и у Wildberries.
         check("выбор: проверяется слово выбранной категории",
-              asked == ["iphone 17 pro"], asked)
+              asked == [("iphone 17 pro", "iphone")], asked)
         joined = " ".join(upd.callback_query.message.replies)
         check("выбор: назван коридор цен этой категории",
               "40 000" in joined and "95 000" in joined, joined[:90])
@@ -597,6 +599,42 @@ check("площадка: адрес Авито не изменился",
       "avito.ru" in am.build_search_url("перфоратор"), am.build_search_url("перфоратор"))
 check("площадка: разбор выбирается по источнику",
       len(am.parse_search(wb_html, "wb")) == 1 and len(am.parse_search(html_dom)) == 2)
+
+
+async def wb_self_test_goes_to_wb():
+    """Проверка категории WB обязана идти на WB, а не на Авито.
+
+    Сперва так и было сломано: адрес строился вэбэшный, а дальше всё
+    по-авитовски - прогрев через главную Авито, ожидание авитовской приметы,
+    авитовский разбор. Выдача приходила живая, а бот докладывал «ноль
+    карточек, Авито сменил вёрстку».
+    """
+    seen = {}
+
+    async def fake_fetch(url, source="avito"):
+        seen["url"], seen["source"] = url, source
+        return wb_html
+
+    saved, am.fetch_html = am.fetch_html, fake_fetch
+    try:
+        out = await am.self_test("iphone", "wb_apple")
+        check("WB: проверка идёт на адрес Wildberries",
+              "wildberries.ru" in seen.get("url", ""), seen.get("url"))
+        check("WB: добыча знает, что площадка не Авито",
+              seen.get("source") == "wb", seen.get("source"))
+        check("WB: в ответе названа верная площадка",
+              "Wildberries" in out and "1" in out, out[:80])
+        check("WB: разобрана карточка, а не «ноль»", "Ноль карточек" not in out, out[:80])
+
+        # А проверка авитовской категории по-прежнему идёт на Авито.
+        await am.self_test("перфоратор", "instrument")
+        check("площадка: проверка Авито не съехала на WB",
+              "avito.ru" in seen["url"] and seen["source"] == "avito", seen)
+    finally:
+        am.fetch_html = saved
+
+
+asyncio.run(wb_self_test_goes_to_wb())
 
 # --- URL поиска ---
 url = am.build_search_url("сплит система")

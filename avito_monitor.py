@@ -1195,40 +1195,61 @@ async def check_sold():
 
 
 # ========== ДИАГНОСТИКА ==========
-async def self_test(query: str = "перфоратор") -> str:
-    """Живая проверка: доходим ли до Авито и понимаем ли выдачу."""
-    url = build_search_url(query)
+async def self_test(query: str = "перфоратор", category: str | None = None) -> str:
+    """Живая проверка: доходим ли до площадки и понимаем ли выдачу.
+
+    Площадку надо знать заранее, а не угадывать по ходу. Первая версия
+    строила адрес с учётом площадки, а дальше всё делала по-авитовски:
+    грелась через главную Авито, ждала авитовскую примету и разбирала
+    авитовским разбором. Для Wildberries это давало ноль карточек и
+    надпись «Авито сменил вёрстку» - при живой и исправной выдаче.
+
+    category передаётся явно, потому что одно и то же слово встречается у
+    разных площадок: «apple watch» есть и в авитовской категории, и в
+    вэбэшной, и угадывание выбрало бы не ту.
+    """
+    cat = category if category is not None else category_of(query)
+    source = source_of(cat)
+    site = "Wildberries" if source == "wb" else "Авито"
+    url = build_search_url(query, cat)
+
     try:
-        html = await fetch_html(url)
+        html = await fetch_html(url, source)
     except avito_browser.BrowserUnavailable as exc:
         return (f"❌ Браузер не поднялся: {exc}\n\n"
-                f"Без браузера Авито не читается совсем — проверено.")
+                f"Без браузера ни одна площадка не читается — проверено.")
     except AvitoBlocked as exc:
-        hint = ("Авито пропускает только настоящий видимый браузер. Проверь, "
-                "что окно браузера открылось: если оно закрыто или бот запущен "
-                "службой, будет ровно это." if USE_BROWSER else
-                "Сейчас ходим по http (AVITO_FETCH=http), а так Авито не пускает. "
+        hint = ("Пропускают только настоящий видимый браузер. Проверь, что окно "
+                "браузера открылось: если оно закрыто или бот запущен службой, "
+                "будет ровно это." if USE_BROWSER else
+                "Сейчас ходим по http (AVITO_FETCH=http), а так не пускают. "
                 "Убери эту настройку, чтобы вернуться к браузеру.")
-        return (f"🚫 Авито блокирует запросы: {exc}\n"
+        return (f"🚫 {site} блокирует запросы: {exc}\n"
                 f"ходили: {fetch_label()}\n\n{hint}")
     except Exception as exc:
-        return f"❌ Не достучались до Авито: {type(exc).__name__}: {exc}"
-
-    via_json = parse_from_json(html)
-    via_dom = parse_from_dom(html)
-    items = via_json or via_dom
+        return f"❌ Не достучались до {site}: {type(exc).__name__}: {exc}"
 
     out = [
-        f"🔍 Тест по запросу «{query}»",
+        f"🔍 {site}, запрос «{query}»",
         f"чем ходили: {fetch_label()}",
         f"через что: {proxy_label()}",
         f"страница получена: {len(html):,} символов".replace(",", " "),
-        f"через JSON: {len(via_json)} карточек",
-        f"через разметку: {len(via_dom)} карточек" + ("" if BS4_AVAILABLE else " (bs4 не установлен)"),
-        "",
     ]
+
+    if source == "wb":
+        items = wb_source.parse(html)
+        out.append(f"карточек разобрано: {len(items)}")
+    else:
+        via_json = parse_from_json(html)
+        via_dom = parse_from_dom(html)
+        items = via_json or via_dom
+        out.append(f"через JSON: {len(via_json)} карточек")
+        out.append(f"через разметку: {len(via_dom)} карточек"
+                   + ("" if BS4_AVAILABLE else " (bs4 не установлен)"))
+    out.append("")
+
     if not items:
-        out.append("⚠️ Ноль карточек. Авито сменил вёрстку — нужно поправить парсер.")
+        out.append(f"⚠️ Ноль карточек. {site} сменил вёрстку — нужно поправить разбор.")
         return "\n".join(out)
 
     # Отдельно показываем отсеянное. Авито ищет нестрого и подмешивает
@@ -1483,7 +1504,9 @@ async def on_test_choice(update, context):
         f"⏳ Проверяю «{query}» в коридоре "
         f"{low:,}–{high:,} ₽...".replace(",", " ")
     )
-    await query_obj.message.reply_text(await self_test(query))
+    # Категорию передаём явно: по одному слову её не угадать - «apple watch»
+    # есть и у Авито, и у Wildberries, и выбралась бы не та площадка.
+    await query_obj.message.reply_text(await self_test(query, cat_key))
 
 
 # Здесь была register(app) - вторая, никем не вызываемая сборка команд.
