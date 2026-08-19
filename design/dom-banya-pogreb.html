@@ -1,0 +1,1133 @@
+<title>Дом «Тихий угол»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Prata&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root{
+  --paper:#E9EBE6;
+  --paper-2:#F3F4F0;
+  --paper-3:#DFE3DB;
+  --ink:#141815;
+  --ink-2:#4A524B;
+  --ink-3:#6E786F;
+  --line:#C6CCC2;
+  --line-2:#AEB6A9;
+  --copper:#9C4F26;
+  --copper-soft:#EADFD6;
+  --moss:#3E5A46;
+  --steel:#4F6B7A;
+  --steel-soft:#DCE4E7;
+  --shadow:rgba(20,24,21,.10);
+  --grid:#D5DAD1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111413;
+    --paper-2:#181C1A;
+    --paper-3:#1F2422;
+    --ink:#E8EBE5;
+    --ink-2:#A3AEA4;
+    --ink-3:#7E8A80;
+    --line:#2C3330;
+    --line-2:#3C4441;
+    --copper:#DD8153;
+    --copper-soft:#2A1F19;
+    --moss:#83AD8E;
+    --steel:#8CA9B7;
+    --steel-soft:#1B2427;
+    --shadow:rgba(0,0,0,.45);
+    --grid:#232A27;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#111413;
+  --paper-2:#181C1A;
+  --paper-3:#1F2422;
+  --ink:#E8EBE5;
+  --ink-2:#A3AEA4;
+  --ink-3:#7E8A80;
+  --line:#2C3330;
+  --line-2:#3C4441;
+  --copper:#DD8153;
+  --copper-soft:#2A1F19;
+  --moss:#83AD8E;
+  --steel:#8CA9B7;
+  --steel-soft:#1B2427;
+  --shadow:rgba(0,0,0,.45);
+  --grid:#232A27;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Golos Text","Helvetica Neue",Arial,sans-serif;
+  font-size:17px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{margin:0;text-wrap:balance;font-weight:400}
+p{margin:0}
+a{color:var(--copper)}
+
+/* ——— каркас альбома ——— */
+.album{
+  max-width:1240px;
+  margin:0 auto;
+  padding:0 24px 120px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:0;
+}
+.sheet{
+  display:grid;
+  grid-template-columns:132px minmax(0,1fr);
+  gap:32px;
+  border-top:1px solid var(--line);
+  padding:56px 0 8px;
+}
+.sheet__mark{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--ink-3);
+  position:sticky;
+  top:24px;
+  align-self:start;
+  line-height:1.5;
+}
+.sheet__mark b{display:block;color:var(--copper);font-weight:700;font-size:13px;letter-spacing:.1em}
+.sheet__body{display:flex;flex-direction:column;gap:26px;min-width:0}
+.col{max-width:66ch;display:flex;flex-direction:column;gap:18px}
+h2{font-family:"Prata",Georgia,serif;font-size:clamp(28px,3.6vw,40px);line-height:1.14;letter-spacing:-.01em}
+h3{font-family:"Prata",Georgia,serif;font-size:22px;line-height:1.25}
+h4{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2);
+}
+.lead{font-size:19px;color:var(--ink-2)}
+.muted{color:var(--ink-2)}
+.small{font-size:14.5px;line-height:1.55}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+/* ——— титул ——— */
+.cover{padding:76px 0 44px;display:flex;flex-direction:column;gap:34px}
+.cover__meta{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:8px 22px;
+}
+.cover h1{
+  font-family:"Prata",Georgia,serif;
+  font-size:clamp(42px,7.4vw,86px);
+  line-height:1.02;
+  letter-spacing:-.02em;
+  max-width:15ch;
+}
+.cover h1 em{font-style:normal;color:var(--copper)}
+.cover__sub{font-size:20px;color:var(--ink-2);max-width:60ch}
+.stamp{
+  border:1px solid var(--line-2);
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+}
+.stamp div{padding:14px 16px;border-right:1px solid var(--line);}
+.stamp div:last-child{border-right:0}
+.stamp dt{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 5px;
+}
+.stamp dd{margin:0;font-size:16px;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* ——— таблицы ——— */
+.tw{overflow-x:auto;border:1px solid var(--line);background:var(--paper-2)}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:14.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);
+  background:var(--paper-3);border-bottom:1px solid var(--line-2);font-weight:500;white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+tfoot td{
+  border-top:1px solid var(--line-2);background:var(--paper-3);font-weight:600;
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;
+}
+tfoot td:first-child{font-family:"Golos Text",sans-serif}
+.rooms td:first-child{
+  font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--copper);font-weight:700;width:44px;
+}
+
+/* ——— чертежи ——— */
+.plate{
+  border:1px solid var(--line-2);
+  background:var(--paper-2);
+  padding:22px 22px 16px;
+  display:flex;flex-direction:column;gap:14px;
+}
+.plate__cap{
+  display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;
+  border-bottom:1px solid var(--line);padding-bottom:12px;
+}
+.plate__cap b{font-family:"Prata",Georgia,serif;font-weight:400;font-size:18px}
+.plate__cap span{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+}
+.plate svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:22px;height:9px;margin-right:7px;vertical-align:middle;border:1px solid var(--line-2)}
+.duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;align-items:start}
+
+/* ——— блоки-узлы ——— */
+.node{border-top:2px solid var(--copper);background:var(--paper-2);padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.node--steel{border-top-color:var(--steel)}
+.node--moss{border-top-color:var(--moss)}
+.node__t{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2);
+}
+.node h3{font-size:19px}
+ul.ticks{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+ul.ticks li{padding-left:24px;position:relative;font-size:15.5px;line-height:1.55}
+ul.ticks li::before{
+  content:"";position:absolute;left:0;top:.62em;width:12px;height:1px;background:var(--copper);
+}
+ul.ticks.steel li::before{background:var(--steel)}
+ul.ticks.moss li::before{background:var(--moss)}
+.grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14.5px}
+.kv dt{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding-top:3px}
+.kv dd{margin:0}
+.warn{border-left:3px solid var(--copper);background:var(--copper-soft);padding:14px 18px;font-size:15px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
+.sw{border:1px solid var(--line)}
+.sw i{display:block;height:64px}
+.sw span{display:block;padding:8px 10px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;line-height:1.5;background:var(--paper-2)}
+.sw b{display:block;font-family:"Golos Text",sans-serif;font-size:13px;font-weight:600;letter-spacing:0;text-transform:none}
+.foot{border-top:1px solid var(--line);margin-top:56px;padding-top:22px;font-size:13.5px;color:var(--ink-3);max-width:70ch}
+@media (max-width:820px){
+  .sheet{grid-template-columns:minmax(0,1fr);gap:14px}
+  .sheet__mark{position:static;display:flex;gap:14px;align-items:baseline}
+  body{font-size:16px}
+}
+</style>
+
+<div class="album">
+
+<header class="cover">
+  <div class="cover__meta">
+    <span>Проект 2026 / 08</span><span>Стадия: эскизный проект + АР</span><span>Московская обл., 15 соток</span>
+  </div>
+  <h1>Дом <em>«Тихий угол»</em></h1>
+  <p class="cover__sub">Двухэтажный дом-барнхаус 208 м², отдельный банный блок 45 м², соединённый со&nbsp;светопрозрачным переходом, и&nbsp;холодный погреб 22 м² в&nbsp;монолитной ванне под баней. Проработано до&nbsp;узлов, сечений кабеля и&nbsp;сметных строк.</p>
+  <div class="stamp">
+    <div><dt>Общая площадь</dt><dd>275,6 м²</dd></div>
+    <div><dt>Пятно застройки</dt><dd>179 м²</dd></div>
+    <div><dt>Бюджет «под ключ»</dt><dd>34–42 млн ₽</dd></div>
+    <div><dt>Срок реализации</dt><dd>14–16 мес.</dd></div>
+    <div><dt>Расчётная зима</dt><dd>−28 °C</dd></div>
+  </div>
+</header>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ИД</b>Исходные данные</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>С чего считался проект</h2>
+      <p class="lead">Ниже — допущения, на которых построены все цифры. Если что-то из этого не про вас, скажите: пересчитаю площади, состав стены и смету, остальная логика проекта сохранится.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Параметр</th><th>Принято в проекте</th><th>Почему так</th></tr></thead>
+        <tbody>
+          <tr><td>Регион</td><td>Московская область, климат. район II В</td><td>Расчётная температура −28 °C, ГСОП ≈ 4900 °С·сут — от этого толщины утеплителя</td></tr>
+          <tr><td>Участок</td><td>30 × 50 м (15 соток), уклон до 1,5 м, ИЖС</td><td>Хватает на дом + баню + навес + сад с отступами по ПЗЗ</td></tr>
+          <tr><td>Грунты</td><td>Суглинок, УГВ −3,2 м (весной −2,4 м)</td><td>Ключевое условие для погреба. Требуется геология до начала КР</td></tr>
+          <tr><td>Семья</td><td>2 взрослых + 2 детей, удалённая работа, гости 4–6 чел.</td><td>Отсюда 3 спальни, кабинет, гостевой санузел, большая комната отдыха в бане</td></tr>
+          <tr><td>Сценарий жизни</td><td>Круглогодичное проживание</td><td>Полноценная инженерия, а не «дачный» набор</td></tr>
+          <tr><td>Газ</td><td>Есть по границе участка</td><td>Основной котёл — газовый; резерв — электрокотёл 9 кВт</td></tr>
+          <tr><td>Электричество</td><td>15 кВт, 380 В</td><td>Хватает с запасом при газовом отоплении; расчёт нагрузок — в разделе ЭОМ</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="warn"><b>Одно условие, которое нельзя обойти.</b> Погреб под баней делается только при УГВ ниже отметки его пола минимум на 0,5 м, подтверждённом геологией в этом самом пятне (не «у соседа»). Если вода выше — погреб переезжает под террасу или становится полузаглублённым лабазом с обваловкой. Всё остальное в проекте от этого не зависит.</div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>КЦ</b>Концепция</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Три объёма и один сценарий</h2>
+      <p>Модно сейчас не «сложно», а честно: простая двускатная геометрия без свесов-карнизов, крупные плоскости материала, тёмное дерево против светлой штукатурки, панорамное остекление строго на юго-запад — и никакой лепнины эклектики. Дом собран из трёх объёмов, разнесённых по функции и по температуре.</p>
+    </div>
+    <div class="grid-cards">
+      <div class="node">
+        <div class="node__t">Объём 1 · Жильё</div>
+        <h3>Дом 12,0 × 10,5 м</h3>
+        <p class="small">Два этажа под общей двускатной кровлей 38°. Первый — одно перетекающее пространство кухни-гостиной-столовой с выходом на террасу. Второй — приватный: три спальни и две ванные.</p>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">Объём 2 · Переход</div>
+        <h3>Галерея 3,0 × 2,6 м</h3>
+        <p class="small">Отапливаемый стеклянный переход дом→баня. Зимой можно дойти до парной в халате; летом двери-слайдеры раскрываются и переход становится частью террасы. Здесь же — дровница на 1,2 м³ и вход в санузел бани.</p>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Объём 3 · Баня + погреб</div>
+        <h3>Банный блок 7,5 × 6,0 м</h3>
+        <p class="small">Один этаж с высокой парной и купелью на террасе. Под ним — монолитная ванна погреба 22 м² с собственной лестницей и вентиляцией, не сообщающейся с влажными помещениями бани.</p>
+      </div>
+    </div>
+    <div class="col">
+      <h3>Почему погреб именно под баней — и что это меняет</h3>
+      <p>Плюсы честные: не нужна отдельная яма в саду, короткая тёплая связка «баня → закуска → погреб», а монолит под банным блоком всё равно требуется под печь и купель. Минус ровно один, зато серьёзный: погреб оказывается под мокрым помещением с суточными перепадами температуры 60 °C. Поэтому в проекте приняты три жёстких правила.</p>
+      <ul class="ticks">
+        <li><b>Погреб не заходит под парную и под фундамент печи.</b> Его пятно — только под комнатой отдыха и тамбуром. Под парной остаётся сплошной массив грунта и отдельный фундамент печи.</li>
+        <li><b>Между баней и погребом — не перекрытие, а «пирог-разделитель»</b>: монолитная плита 200 мм + оклеечная гидроизоляция + ЭППС 100 мм + стяжка бани. Пар и пролитая вода до погреба не доходят физически.</li>
+        <li><b>Вход в погреб — из тамбура, а не из мойки.</b> Люк в мокрой зоне — самая частая ошибка: конденсат по лестнице идёт вниз, и через два сезона в погребе плесень.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ГП</b>Генплан</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Посадка на участке</h2>
+      <p>Дом сдвинут к северной границе — так весь сад достаётся южной стороне, а не тени от дома. Баня отнесена в глубину участка: от неё до соседского забора 8 м (норматив — от 8 м между строениями по СП 4.13130 для сгораемых материалов, уточняется по классу конструкций).</p>
+    </div>
+    <div class="plate">
+      <div class="plate__cap"><b>Схема генерального плана</b><span>М 1:400 · участок 30 × 50 м</span></div>
+      <svg viewBox="0 0 760 470" role="img" aria-label="Схема генерального плана участка с домом, баней, навесом и садом">
+        <defs>
+          <pattern id="gp-grass" width="16" height="16" patternUnits="userSpaceOnUse">
+            <rect width="16" height="16" fill="none"/>
+            <path d="M0 16 L16 0" stroke="var(--grid)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect x="40" y="30" width="600" height="400" fill="url(#gp-grass)" stroke="var(--line-2)" stroke-width="1.5"/>
+        <!-- дорога и въезд -->
+        <rect x="40" y="430" width="600" height="26" fill="var(--paper-3)" stroke="var(--line)"/>
+        <text x="46" y="448" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">УЛИЦА · въезд с юго-востока</text>
+        <!-- навес -->
+        <rect x="470" y="330" width="150" height="80" fill="var(--paper-3)" stroke="var(--steel)" stroke-dasharray="5 4"/>
+        <text x="545" y="365" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="12" fill="var(--steel)">НАВЕС 2 а/м</text>
+        <text x="545" y="381" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--ink-3)">38 м²</text>
+        <!-- дом -->
+        <rect x="90" y="70" width="300" height="200" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="3"/>
+        <text x="240" y="160" text-anchor="middle" font-family="Prata, serif" font-size="20" fill="var(--ink)">ДОМ</text>
+        <text x="240" y="182" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-2)">12,0 × 10,5 м · 2 эт.</text>
+        <!-- терраса -->
+        <rect x="90" y="270" width="300" height="62" fill="none" stroke="var(--copper)" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="240" y="306" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--copper)">ТЕРРАСА 34 м² · Ю-З</text>
+        <!-- переход -->
+        <rect x="390" y="150" width="70" height="66" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="2"/>
+        <text x="425" y="188" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">ПЕРЕХОД</text>
+        <!-- баня -->
+        <rect x="460" y="105" width="160" height="155" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="3"/>
+        <text x="540" y="170" text-anchor="middle" font-family="Prata, serif" font-size="17" fill="var(--ink)">БАНЯ</text>
+        <text x="540" y="190" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--ink-2)">7,5 × 6,0 м</text>
+        <!-- контур погреба -->
+        <rect x="472" y="160" width="112" height="88" fill="none" stroke="var(--moss)" stroke-width="2" stroke-dasharray="8 5"/>
+        <text x="528" y="243" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--moss)">ПОГРЕБ ‑2,60</text>
+        <!-- купель -->
+        <circle cx="600" cy="285" r="20" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="1.5"/>
+        <text x="600" y="320" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">КУПЕЛЬ</text>
+        <!-- сад -->
+        <text x="180" y="380" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">САД · плодовые, огород 3 грядки, костровая</text>
+        <!-- скважина, септик -->
+        <circle cx="120" cy="400" r="7" fill="none" stroke="var(--steel)" stroke-width="1.5"/>
+        <text x="132" y="404" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">скважина 62 м</text>
+        <circle cx="410" cy="400" r="7" fill="none" stroke="var(--copper)" stroke-width="1.5"/>
+        <text x="422" y="404" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--copper)">септик 5 м³</text>
+        <!-- роза ветров / север -->
+        <g transform="translate(690,70)">
+          <line x1="0" y1="34" x2="0" y2="-14" stroke="var(--ink)" stroke-width="1.5"/>
+          <path d="M0 -22 L6 -8 L-6 -8 Z" fill="var(--ink)"/>
+          <text x="0" y="52" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="12" fill="var(--ink)">С</text>
+        </g>
+        <text x="690" y="130" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--ink-3)">преобл.</text>
+        <text x="690" y="144" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--ink-3)">ветер З</text>
+        <!-- размеры -->
+        <text x="340" y="22" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">50,0 м</text>
+        <text x="22" y="235" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)" transform="rotate(-90 22 235)">30,0 м</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--paper-2);border-color:var(--ink)"></i>отапливаемый контур</span>
+        <span><i style="border-color:var(--moss);border-style:dashed"></i>погреб под баней</span>
+        <span><i style="border-color:var(--copper);border-style:dashed"></i>террасы и покрытия</span>
+        <span><i style="background:var(--steel-soft);border-color:var(--steel)"></i>вода / стекло</span>
+      </div>
+    </div>
+    <div class="grid-cards">
+      <div class="node node--steel">
+        <div class="node__t">Ориентация</div>
+        <ul class="ticks steel">
+          <li>Панорамное остекление гостиной — Ю-З: вечернее солнце в зоне отдыха, зимой пассивный прогрев.</li>
+          <li>Спальни — на восток: мягкое утро, вечером не перегреваются.</li>
+          <li>Глухая северная стена: два узких окна, минимум теплопотерь, тут же технические помещения.</li>
+          <li>Свес кровли 900 мм + маркиза над панорамой: летнее солнце (57°) отсекается, зимнее (14°) проходит.</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node__t">Отступы и нормы</div>
+        <ul class="ticks">
+          <li>От дома до границы участка — 3,0 м; от бани — 3,0 м; от красной линии улицы — 5,0 м.</li>
+          <li>Между баней и жилым домом соседа — не менее 8–10 м по классу конструктивной пожарной опасности.</li>
+          <li>Септик — 5 м от дома, 4 м от границы, 50 м от скважины (своей и соседской).</li>
+          <li>Скважина в отдельном кессоне, вне пятна застройки, с подъездом для обслуживания.</li>
+        </ul>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Вертикальная планировка</div>
+        <ul class="ticks moss">
+          <li>Отметка чистого пола дома ±0,000 = +600 мм от средней отметки земли.</li>
+          <li>Уклон площадки от дома 2 % во все стороны — вода уходит в дренаж по периметру.</li>
+          <li>Пристенный дренаж на отметке −2,90 (ниже пола погреба на 300 мм) с выводом в дренажный колодец и насосом.</li>
+          <li>Ливнёвка отдельная от дренажа, с кровли — в накопитель для полива 2 м³.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ТЭП</b>Площади</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Технико-экономические показатели</h2>
+      <p>Площади даны в чистоте (по внутренним поверхностям стен) — это то, чем реально пользуешься, а не «продажные» квадраты по внешнему обмеру.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Объём</th><th class="num">Застройка, м²</th><th class="num">В чистоте, м²</th><th>Температурный режим</th></tr></thead>
+        <tbody>
+          <tr><td>Дом, 1-й этаж</td><td class="num">126,0</td><td class="num">112,0</td><td>+22 °C</td></tr>
+          <tr><td>Дом, 2-й этаж</td><td class="num">—</td><td class="num">95,1</td><td>+20 °C, спальни +19 °C</td></tr>
+          <tr><td>Переход-галерея</td><td class="num">7,8</td><td class="num">7,8</td><td>+16 °C</td></tr>
+          <tr><td>Банный блок</td><td class="num">45,0</td><td class="num">38,4</td><td>+16 °C деж., парная +95 °C</td></tr>
+          <tr><td>Погреб под баней</td><td class="num">—</td><td class="num">22,4</td><td class="mono">+2…+8 °C круглый год</td></tr>
+          <tr><td>Терраса + лоджия</td><td class="num">34,0 / 9,9</td><td class="num">—</td><td>не отапливается</td></tr>
+          <tr><td>Навес на 2 авто</td><td class="num">38,0</td><td class="num">—</td><td>не отапливается</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td>Итого</td><td class="num">178,8</td><td class="num">275,6</td><td class="num">отапливаемых 253,3</td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="col small muted"><p>Двусвет над гостиной (21,0 м², высота 6,4 м) в полезную площадь не включён — это объём, а не пол. Именно он делает гостиную «дорогой» без единого рубля на отделку.</p></div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>АР-01</b>План 1 этажа</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Первый этаж: одна большая комната и служебный пояс</h2>
+      <p>Вся служебка — котельная, постирочная, санузел, тамбур — собрана в северный пояс глубиной 3 м. Это тепловой буфер: холодная сторона занята помещениями, которым всё равно. Остальные 7,5 м глубины отданы одному пространству 56 м² с потолком 3,2 м и двусветом над зоной гостиной.</p>
+    </div>
+    <div class="plate">
+      <div class="plate__cap"><b>План 1-го этажа</b><span>М 1:100 · отм. ±0,000</span></div>
+      <svg viewBox="0 0 648 572" role="img" aria-label="План первого этажа дома">
+        <g stroke="var(--ink)" fill="var(--paper-3)">
+          <rect x="70" y="50" width="528" height="462" stroke-width="4"/>
+        </g>
+        <g fill="var(--paper-2)" stroke="var(--line-2)" stroke-width="2">
+          <rect x="70" y="50" width="114.4" height="132"/>
+          <rect x="184.4" y="50" width="96.8" height="132"/>
+          <rect x="281.2" y="50" width="79.2" height="132"/>
+          <rect x="360.4" y="50" width="132" height="132"/>
+          <rect x="492.4" y="50" width="105.6" height="132"/>
+          <rect x="70" y="182" width="369.6" height="330"/>
+          <rect x="439.6" y="182" width="158.4" height="114.4"/>
+          <rect x="439.6" y="296.4" width="158.4" height="215.6"/>
+        </g>
+        <!-- двусвет -->
+        <rect x="272.4" y="292" width="167.2" height="220" fill="none" stroke="var(--copper)" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="356" y="500" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--copper)">двусвет h=6,4 м</text>
+        <!-- терраса -->
+        <rect x="70" y="512" width="528" height="46" fill="none" stroke="var(--copper)" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="334" y="541" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--copper)">ТЕРРАСА 34,0 м² · термоясень, лаги по регулируемым опорам</text>
+        <!-- панорамное остекление юг -->
+        <line x1="70" y1="512" x2="439.6" y2="512" stroke="var(--steel)" stroke-width="5"/>
+        <text x="150" y="505" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">панорама 5,6 м · слайдер</text>
+        <!-- переход -->
+        <rect x="598" y="182" width="46" height="114.4" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="2"/>
+        <text x="621" y="245" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)" transform="rotate(-90 621 245)">В БАНЮ</text>
+        <!-- лестница -->
+        <g stroke="var(--ink-3)" stroke-width="1">
+          <rect x="372" y="62" width="108" height="108" fill="none" stroke="var(--ink-3)"/>
+          <line x1="372" y1="80" x2="480" y2="80"/><line x1="372" y1="98" x2="480" y2="98"/>
+          <line x1="372" y1="116" x2="480" y2="116"/><line x1="372" y1="134" x2="480" y2="134"/>
+          <line x1="372" y1="152" x2="480" y2="152"/>
+        </g>
+        <text x="426" y="76" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--ink-3)">17 подъёмов 178/290</text>
+        <!-- камин / кухня отметки -->
+        <rect x="80" y="192" width="26" height="120" fill="var(--copper-soft)" stroke="var(--copper)" stroke-width="1.5"/>
+        <text x="93" y="330" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--copper)">камин</text>
+        <rect x="150" y="192" width="200" height="24" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="1.5"/>
+        <text x="250" y="208" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">кухонный фронт 4,5 м</text>
+        <rect x="180" y="270" width="150" height="70" fill="none" stroke="var(--steel)" stroke-width="1.5"/>
+        <text x="255" y="310" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">остров 3,4 × 1,1</text>
+        <!-- номера помещений -->
+        <g font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="var(--copper)" text-anchor="middle">
+          <text x="127" y="122">5</text><text x="233" y="122">4</text><text x="321" y="122">3</text>
+          <text x="504" y="122">2</text><text x="545" y="122">1</text>
+          <text x="390" y="420">6</text><text x="519" y="245">7</text><text x="519" y="410">8</text>
+        </g>
+        <!-- размеры -->
+        <g stroke="var(--ink-3)" stroke-width="1" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">
+          <line x1="70" y1="34" x2="598" y2="34"/>
+          <line x1="70" y1="28" x2="70" y2="40"/><line x1="598" y1="28" x2="598" y2="40"/>
+          <text x="334" y="24" text-anchor="middle">12 000</text>
+          <line x1="46" y1="50" x2="46" y2="512"/>
+          <line x1="40" y1="50" x2="52" y2="50"/><line x1="40" y1="512" x2="52" y2="512"/>
+          <text x="30" y="281" text-anchor="middle" transform="rotate(-90 30 281)">10 500</text>
+        </g>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--steel-soft);border-color:var(--steel)"></i>стекло, вода, техника</span>
+        <span><i style="background:var(--copper-soft);border-color:var(--copper)"></i>огонь / двусвет</span>
+        <span><i style="background:var(--paper-2)"></i>отапливаемое помещение</span>
+      </div>
+    </div>
+    <div class="tw">
+      <table class="rooms">
+        <thead><tr><th>№</th><th>Помещение</th><th class="num">Площадь, м²</th><th>Ключевое решение</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Тамбур</td><td class="num">6,8</td><td>Тёплый пол на отдельном контуре, скамья, сушилка для обуви, дверь с притвором 3 контура</td></tr>
+          <tr><td>2</td><td>Холл с лестницей</td><td class="num">8,6</td><td>Встроенный шкаф 3,0 м, лестница на металлокосоуре с ясеневыми ступенями</td></tr>
+          <tr><td>3</td><td>Санузел гостевой</td><td class="num">5,0</td><td>Душ без поддона, подвесной унитаз, лючок к коллектору</td></tr>
+          <tr><td>4</td><td>Постирочная</td><td class="num">6,2</td><td>Стирка + сушка в колонну, глубокая мойка, штанга для сушки, вытяжка 90 м³/ч</td></tr>
+          <tr><td>5</td><td>Котельная</td><td class="num">7,4</td><td>Отдельный вход с улицы, окно 0,9 м², газовый котёл, бойлер 200 л, коллекторы</td></tr>
+          <tr><td>6</td><td>Кухня-столовая-гостиная</td><td class="num">56,0</td><td>Три зоны на одной оси: кухня — стол на 10 — диван у камина; выход на террасу</td></tr>
+          <tr><td>7</td><td>Связка / вход в галерею</td><td class="num">8,2</td><td>Второй свет из перехода, ниша под винный шкаф и «банную» посуду</td></tr>
+          <tr><td>8</td><td>Кабинет / гостевая</td><td class="num">13,8</td><td>Двери-пенал, диван-кровать, отдельный ввод интернета и розеточная группа под ИБП</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="2">Итого по этажу</td><td class="num">112,0</td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>АР-02</b>План 2 этажа</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Второй этаж: три спальни и ни одного коридора</h2>
+      <p>Лестница выходит в холл-библиотеку с окном во всю стену — он же играет роль второй гостиной и рабочего места. Мокрые точки обеих ванных стоят стеной к стене над санузлом первого этажа: один стояк, один вытяжной блок, минимум шума.</p>
+    </div>
+    <div class="plate">
+      <div class="plate__cap"><b>План 2-го этажа</b><span>М 1:100 · отм. +3,300</span></div>
+      <svg viewBox="0 0 648 572" role="img" aria-label="План второго этажа дома">
+        <rect x="70" y="50" width="528" height="462" fill="var(--paper-3)" stroke="var(--ink)" stroke-width="4"/>
+        <g fill="var(--paper-2)" stroke="var(--line-2)" stroke-width="2">
+          <rect x="70" y="50" width="114.4" height="132"/>
+          <rect x="184.4" y="50" width="96.8" height="132"/>
+          <rect x="281.2" y="50" width="79.2" height="132"/>
+          <rect x="360.4" y="50" width="237.6" height="132"/>
+          <rect x="70" y="182" width="202.4" height="193.6"/>
+          <rect x="70" y="375.6" width="202.4" height="136.4"/>
+          <rect x="272.4" y="182" width="184.8" height="110"/>
+          <rect x="457.2" y="182" width="140.8" height="193.6"/>
+        </g>
+        <rect x="272.4" y="292" width="184.8" height="220" fill="none" stroke="var(--copper)" stroke-width="2" stroke-dasharray="7 5"/>
+        <text x="364" y="405" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="12" fill="var(--copper)">ДВУСВЕТ</text>
+        <text x="364" y="424" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--copper)">над гостиной · 21,0 м²</text>
+        <rect x="457.2" y="375.6" width="140.8" height="136.4" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="2"/>
+        <text x="527" y="447" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--steel)">ЛОДЖИЯ 9,9</text>
+        <!-- ограждение двусвета -->
+        <line x1="272.4" y1="292" x2="457.2" y2="292" stroke="var(--ink)" stroke-width="3"/>
+        <g font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="var(--copper)" text-anchor="middle">
+          <text x="127" y="122">12</text><text x="233" y="122">11</text><text x="321" y="122">15</text>
+          <text x="479" y="122">9</text><text x="171" y="285">10</text><text x="171" y="450">13</text>
+          <text x="364" y="243">9а</text><text x="527" y="285">14</text>
+        </g>
+        <g stroke="var(--ink-3)" stroke-width="1" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">
+          <line x1="70" y1="34" x2="598" y2="34"/>
+          <line x1="70" y1="28" x2="70" y2="40"/><line x1="598" y1="28" x2="598" y2="40"/>
+          <text x="334" y="24" text-anchor="middle">12 000</text>
+        </g>
+        <text x="334" y="545" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--ink-3)">высота в коньке 6,4 м · по стенам 2,7 м · уклон кровли 38°</text>
+      </svg>
+    </div>
+    <div class="tw">
+      <table class="rooms">
+        <thead><tr><th>№</th><th>Помещение</th><th class="num">Площадь, м²</th><th>Ключевое решение</th></tr></thead>
+        <tbody>
+          <tr><td>9</td><td>Холл-библиотека</td><td class="num">16,2</td><td>Стеллаж во всю стену, окно 2,4 × 1,6 на восток, место для рабочего стола</td></tr>
+          <tr><td>9а</td><td>Галерея у двусвета</td><td class="num">10,5</td><td>Ограждение — стекло в чёрном профиле, без «балясин»</td></tr>
+          <tr><td>10</td><td>Спальня родителей</td><td class="num">20,2</td><td>Кровать 180×200 на оси окна, шторный карман в потолке, свет — только сценарный</td></tr>
+          <tr><td>11</td><td>Гардеробная</td><td class="num">6,6</td><td>Проходная в ванную, П-образная система, вытяжка 25 м³/ч</td></tr>
+          <tr><td>12</td><td>Ванная родителей</td><td class="num">7,8</td><td>Ванна у окна, душ 90×120, двойная раковина, тёплый пол</td></tr>
+          <tr><td>13</td><td>Детская 1</td><td class="num">14,3</td><td>Зонирование стеллажом: сон / стол / игра; розетки на 0,3 и 0,9 м</td></tr>
+          <tr><td>14</td><td>Детская 2</td><td class="num">14,1</td><td>Выход на лоджию, идентичный набор оборудования — без «кто лучше»</td></tr>
+          <tr><td>15</td><td>Ванная детская</td><td class="num">5,4</td><td>Душ + ванна 150, раковина с высоким смесителем, антискользящий керамогранит</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="2">Итого по этажу</td><td class="num">95,1</td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>АР-03</b>Баня</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Банный блок: русская парная, а не «сауна с электрокаменкой»</h2>
+      <p>Парная спроектирована под режим 60–70 °C при влажности 40–60 % — тот самый режим, в котором работают вениками и в котором находиться приятно час, а не пять минут. Печь — закрытая каменка на дровах с топкой из комнаты отдыха: дрова, зола и грязь остаются за пределами парной.</p>
+    </div>
+    <div class="duo">
+      <div class="plate">
+        <div class="plate__cap"><b>План бани</b><span>М 1:75 · отм. +0,150</span></div>
+        <svg viewBox="0 0 570 465" role="img" aria-label="План банного блока">
+          <rect x="60" y="45" width="450" height="360" fill="var(--paper-3)" stroke="var(--ink)" stroke-width="4"/>
+          <g fill="var(--paper-2)" stroke="var(--line-2)" stroke-width="2">
+            <rect x="60" y="45" width="120" height="144"/>
+            <rect x="180" y="45" width="132" height="144"/>
+            <rect x="60" y="189" width="252" height="216"/>
+            <rect x="312" y="45" width="198" height="108"/>
+            <rect x="312" y="153" width="198" height="126"/>
+          </g>
+          <rect x="312" y="279" width="198" height="126" fill="var(--copper-soft)" stroke="var(--copper)" stroke-width="2"/>
+          <!-- печь -->
+          <rect x="300" y="300" width="46" height="60" fill="var(--copper)" stroke="var(--copper)"/>
+          <text x="323" y="378" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--copper)">печь</text>
+          <!-- полок -->
+          <rect x="400" y="292" width="100" height="30" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/>
+          <rect x="400" y="330" width="100" height="30" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/>
+          <text x="450" y="312" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--ink-3)">полок 2,0 м</text>
+          <text x="450" y="350" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--ink-3)">нижний ярус</text>
+          <!-- люк в погреб -->
+          <rect x="78" y="63" width="84" height="60" fill="var(--moss)" fill-opacity="0.18" stroke="var(--moss)" stroke-width="2"/>
+          <text x="120" y="98" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--moss)">ЛЮК ↓</text>
+          <text x="120" y="112" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--moss)">погреб</text>
+          <!-- купель -->
+          <circle cx="535" cy="430" r="26" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="2"/>
+          <text x="500" y="440" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">купель ⌀1,8 →</text>
+          <g font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="var(--copper)" text-anchor="middle">
+            <text x="120" y="160">16</text><text x="246" y="122">17</text><text x="186" y="300">18</text>
+            <text x="411" y="105">19</text><text x="411" y="222">20</text><text x="470" y="400">21</text>
+          </g>
+          <g stroke="var(--ink-3)" stroke-width="1" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">
+            <line x1="60" y1="30" x2="510" y2="30"/><line x1="60" y1="24" x2="60" y2="36"/><line x1="510" y1="24" x2="510" y2="36"/>
+            <text x="285" y="20" text-anchor="middle">7 500</text>
+            <line x1="40" y1="45" x2="40" y2="405"/><line x1="34" y1="45" x2="46" y2="45"/><line x1="34" y1="405" x2="46" y2="405"/>
+            <text x="26" y="225" text-anchor="middle" transform="rotate(-90 26 225)">6 000</text>
+          </g>
+        </svg>
+      </div>
+      <div class="plate">
+        <div class="plate__cap"><b>План погреба</b><span>М 1:75 · отм. −2,600</span></div>
+        <svg viewBox="0 0 570 465" role="img" aria-label="План погреба под баней">
+          <rect x="60" y="45" width="450" height="360" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <text x="440" y="392" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--ink-3)">контур бани выше</text>
+          <!-- монолитная ванна -->
+          <rect x="60" y="57" width="255" height="336" fill="var(--paper-3)" stroke="var(--moss)" stroke-width="5"/>
+          <rect x="75" y="72" width="225" height="306" fill="var(--paper-2)" stroke="var(--line-2)" stroke-width="1.5"/>
+          <!-- лестница -->
+          <g stroke="var(--ink-3)" stroke-width="1">
+            <rect x="75" y="72" width="72" height="150" fill="none"/>
+            <line x1="75" y1="97" x2="147" y2="97"/><line x1="75" y1="122" x2="147" y2="122"/>
+            <line x1="75" y1="147" x2="147" y2="147"/><line x1="75" y1="172" x2="147" y2="172"/>
+            <line x1="75" y1="197" x2="147" y2="197"/>
+          </g>
+          <text x="111" y="240" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--ink-3)">12 ступ. 195/250</text>
+          <!-- стеллажи -->
+          <g fill="none" stroke="var(--steel)" stroke-width="2">
+            <rect x="160" y="72" width="140" height="34"/>
+            <rect x="160" y="120" width="140" height="34"/>
+            <rect x="266" y="168" width="34" height="130"/>
+            <rect x="75" y="300" width="225" height="34"/>
+          </g>
+          <text x="230" y="94" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">стеллаж консервации</text>
+          <text x="230" y="142" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">винная зона +12 °C</text>
+          <text x="187" y="322" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--steel)">закрома: картофель, корнеплоды</text>
+          <!-- вентканалы -->
+          <circle cx="90" cy="360" r="9" fill="none" stroke="var(--copper)" stroke-width="2"/>
+          <text x="104" y="364" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--copper)">приток ⌀125, низ +100 мм</text>
+          <circle cx="285" cy="88" r="9" fill="none" stroke="var(--copper)" stroke-width="2"/>
+          <text x="272" y="66" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="9.5" fill="var(--copper)">вытяжка ⌀125 ↑</text>
+          <g font-family="JetBrains Mono, monospace" font-size="15" font-weight="700" fill="var(--moss)" text-anchor="middle">
+            <text x="111" y="268">22</text><text x="215" y="230">23</text><text x="187" y="360">24</text>
+          </g>
+          <g stroke="var(--ink-3)" stroke-width="1" font-family="JetBrains Mono, monospace" font-size="11" fill="var(--ink-3)">
+            <line x1="60" y1="30" x2="315" y2="30"/><line x1="60" y1="24" x2="60" y2="36"/><line x1="315" y1="24" x2="315" y2="36"/>
+            <text x="187" y="20" text-anchor="middle">4 500 (в свету 4 000)</text>
+            <line x1="40" y1="57" x2="40" y2="393"/><line x1="34" y1="57" x2="46" y2="57"/><line x1="34" y1="393" x2="46" y2="393"/>
+            <text x="26" y="225" text-anchor="middle" transform="rotate(-90 26 225)">6 100 (в свету 5 600)</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div class="tw">
+      <table class="rooms">
+        <thead><tr><th>№</th><th>Помещение</th><th class="num">Площадь, м²</th><th>Что предусмотрено</th></tr></thead>
+        <tbody>
+          <tr><td>16</td><td>Тамбур бани</td><td class="num">4,4</td><td>Люк в погреб 900 × 700 с газлифтом и утеплением 100 мм; крючки, скамья, трап в полу</td></tr>
+          <tr><td>17</td><td>Дровница и тех. ниша</td><td class="num">5,0</td><td>Дрова на 1,2 м³ с продухом, щит бани, коллектор ТП, фильтр воды</td></tr>
+          <tr><td>18</td><td>Комната отдыха</td><td class="num">14,6</td><td>Стол на 8, топка печи с панорамным стеклом, чайная зона, панорама на сад, ТВ-ниша</td></tr>
+          <tr><td>19</td><td>Санузел</td><td class="num">4,8</td><td>Унитаз, раковина, полотенцесушитель, вход из перехода — гостям не идти через мойку</td></tr>
+          <tr><td>20</td><td>Мойка (душевая)</td><td class="num">6,2</td><td>Два душа, обливное ведро, скамья, трап 0,8 л/с, ГВС от бойлера бани 80 л</td></tr>
+          <tr><td>21</td><td>Парная</td><td class="num">6,4</td><td>Полок 2,0 × 0,9 в два яруса, потолок 2,25 м, закрытая каменка 18 кВт, 90 кг камня</td></tr>
+          <tr><td>22</td><td>Погреб: лестница и шлюз</td><td class="num">3,6</td><td>Утеплённая дверь на входе в холодную зону, светильник IP65, поручень с двух сторон</td></tr>
+          <tr><td>23</td><td>Погреб: сухая зона</td><td class="num">8,8</td><td>Стеллажи из лиственницы, винная секция, гигрометр и термометр с логом в приложение</td></tr>
+          <tr><td>24</td><td>Погреб: закрома</td><td class="num">8,0</td><td>Ящики на ножках 150 мм от пола, отдельный отсек для лука/чеснока с решётчатым дном</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="2">Баня 38,4 · погреб 22,4</td><td class="num">60,8</td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <div class="grid-cards">
+      <div class="node">
+        <div class="node__t">Печь и пожарная безопасность</div>
+        <ul class="ticks">
+          <li>Дровяная закрытая каменка 18 кВт на 16–24 м³, топка удлинённая, выносится в комнату отдыха через кирпичную разделку 250 мм.</li>
+          <li>Собственный фундамент печи: плита 1,2 × 1,2 × 0,3 м, отвязана от плиты бани деформационным швом. Под ней погреба нет.</li>
+          <li>Дымоход — сэндвич 115/215 нерж./нерж., проход через перекрытие и кровлю сертифицированными ППУ, зазор 130 мм, засыпка вермикулитом.</li>
+          <li>Перед топкой — лист из нержавейки 700 × 500, экран из нержавейки на стене за печью с зазором 30 мм.</li>
+          <li>Автономный дымовой извещатель в комнате отдыха, тепловой — в парной (дымовой там ложно сработает), огнетушитель ОП-4 в тамбуре.</li>
+        </ul>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">Вентиляция парной «Басту»</div>
+        <ul class="ticks steel">
+          <li>Приток ⌀100 за печью на высоте 300 мм от пола — воздух проходит над камнями и прогревается.</li>
+          <li>Вытяжка ⌀100 в противоположном углу на 300 мм от пола, канал идёт вверх и на кровлю; задвижка регулирует режим.</li>
+          <li>«Залповая» задвижка под потолком для быстрой просушки после парения.</li>
+          <li>Кратность в режиме парения — 3–5 объёмов в час: этого хватает, чтобы дышалось, и мало, чтобы не выдувать тепло.</li>
+        </ul>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Отделка парной</div>
+        <ul class="ticks moss">
+          <li>Стены и потолок — термоольха или термоосина, шпунт с вентзазором 20 мм по контробрешётке.</li>
+          <li>Фольга 100 мкм по всей поверхности, швы — алюминиевый скотч, стык с полом — герметик термостойкий.</li>
+          <li>Утеплитель — базальтовая вата 100 мм плотностью 45 кг/м³, в потолке 150 мм.</li>
+          <li>Полок — абаш на нержавеющих шпильках потайного крепления: не обжигает даже при 100 °C.</li>
+          <li>Свет — влаго- и термостойкий светильник IP65 за деревянным экраном, оптоволокно как альтернатива над полком.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>КР-01</b>Узел «погреб»</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Разрез 1–1: главный узел всего проекта</h2>
+      <p>Здесь встречаются три несовместимые среды: мокрый грунт снаружи, холодный сухой воздух погреба и горячий влажный воздух бани. Всё, что ниже, — про то, как их развести и не получить через два года плесень на потолке погреба и лёд на лестнице.</p>
+    </div>
+    <div class="plate">
+      <div class="plate__cap"><b>Разрез 1–1 по бане и погребу</b><span>М 1:50 · отметки в метрах от чистого пола дома</span></div>
+      <svg viewBox="0 0 780 560" role="img" aria-label="Разрез по банному блоку и погребу с указанием слоёв и отметок">
+        <defs>
+          <pattern id="soil" width="14" height="14" patternUnits="userSpaceOnUse">
+            <path d="M0 14 L14 0 M-3 3 L3 -3 M11 17 L17 11" stroke="var(--line-2)" stroke-width="1"/>
+          </pattern>
+          <pattern id="grav" width="10" height="10" patternUnits="userSpaceOnUse">
+            <circle cx="3" cy="3" r="1.6" fill="var(--line-2)"/><circle cx="8" cy="7" r="1.4" fill="var(--line-2)"/>
+          </pattern>
+        </defs>
+        <!-- грунт -->
+        <rect x="30" y="300" width="720" height="230" fill="url(#soil)"/>
+        <line x1="30" y1="300" x2="750" y2="300" stroke="var(--ink-2)" stroke-width="2"/>
+        <text x="40" y="294" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--ink-2)">планировочная отметка земли −0,600</text>
+        <!-- щебень и подготовка -->
+        <rect x="120" y="457" width="280" height="18" fill="url(#grav)" stroke="var(--line-2)"/>
+        <rect x="130" y="447" width="262" height="10" fill="var(--paper-3)" stroke="var(--line-2)"/>
+        <!-- монолитная ванна погреба -->
+        <path d="M137 443 L137 314 L151 314 L151 429 L369 429 L369 314 L383 314 L383 443 Z" fill="var(--moss)" fill-opacity="0.22" stroke="var(--moss)" stroke-width="2.5"/>
+        <rect x="137" y="429" width="246" height="18" fill="var(--moss)" fill-opacity="0.22" stroke="var(--moss)" stroke-width="2.5"/>
+        <!-- ЭППС снаружи -->
+        <rect x="127" y="314" width="10" height="129" fill="var(--steel-soft)" stroke="var(--steel)"/>
+        <rect x="383" y="314" width="10" height="129" fill="var(--steel-soft)" stroke="var(--steel)"/>
+        <!-- полость погреба -->
+        <rect x="151" y="325" width="218" height="104" fill="var(--paper)" stroke="none"/>
+        <text x="260" y="380" text-anchor="middle" font-family="Prata, serif" font-size="17" fill="var(--moss)">ПОГРЕБ</text>
+        <text x="260" y="400" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--moss)">+2…+8 °C · h 2 150</text>
+        <!-- перекрытие -->
+        <rect x="137" y="314" width="246" height="11" fill="var(--ink-2)" fill-opacity="0.5" stroke="var(--ink)" stroke-width="1.5"/>
+        <rect x="137" y="303" width="246" height="11" fill="var(--steel-soft)" stroke="var(--steel)" stroke-width="1.5"/>
+        <rect x="137" y="292" width="503" height="11" fill="var(--paper-3)" stroke="var(--line-2)" stroke-width="1.5"/>
+        <!-- плита бани справа (по грунту) -->
+        <rect x="383" y="303" width="257" height="22" fill="var(--paper-3)" stroke="var(--line-2)" stroke-width="1.5"/>
+        <rect x="383" y="325" width="257" height="14" fill="url(#grav)" stroke="var(--line-2)"/>
+        <!-- стены бани -->
+        <rect x="137" y="143" width="14" height="149" fill="var(--paper-3)" stroke="var(--ink)" stroke-width="2"/>
+        <rect x="626" y="143" width="14" height="149" fill="var(--paper-3)" stroke="var(--ink)" stroke-width="2"/>
+        <!-- перегородка парной -->
+        <rect x="450" y="143" width="10" height="149" fill="var(--paper-3)" stroke="var(--line-2)" stroke-width="1.5"/>
+        <!-- кровля -->
+        <path d="M120 145 L388 32 L656 145 Z" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="3"/>
+        <text x="290" y="230" text-anchor="middle" font-family="Prata, serif" font-size="16" fill="var(--ink)">КОМНАТА ОТДЫХА</text>
+        <text x="545" y="230" text-anchor="middle" font-family="Prata, serif" font-size="16" fill="var(--copper)">ПАРНАЯ</text>
+        <text x="545" y="250" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--copper)">потолок 2 250</text>
+        <!-- печь и её фундамент -->
+        <rect x="466" y="212" width="52" height="80" fill="var(--copper)" fill-opacity="0.35" stroke="var(--copper)" stroke-width="2"/>
+        <rect x="455" y="292" width="74" height="47" fill="var(--copper-soft)" stroke="var(--copper)" stroke-width="2"/>
+        <text x="492" y="320" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--copper)">фунд. печи</text>
+        <text x="492" y="332" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="9" fill="var(--copper)">1,2×1,2×0,3</text>
+        <line x1="492" y1="212" x2="492" y2="40" stroke="var(--copper)" stroke-width="7"/>
+        <text x="506" y="80" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--copper)">дымоход 115/215</text>
+        <!-- лестница в погреб -->
+        <path d="M160 325 L160 345 L178 345 L178 365 L196 365 L196 385 L214 385 L214 405 L232 405 L232 429" fill="none" stroke="var(--ink-3)" stroke-width="2"/>
+        <!-- вентканалы -->
+        <path d="M170 420 L170 250 L170 100" fill="none" stroke="var(--steel)" stroke-width="3" stroke-dasharray="1 0"/>
+        <path d="M355 335 L355 250 L355 60" fill="none" stroke="var(--copper)" stroke-width="3"/>
+        <text x="176" y="120" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">приток ⌀125</text>
+        <text x="176" y="134" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">до пола +100</text>
+        <text x="362" y="60" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--copper)">вытяжка ⌀125, выше конька на 500</text>
+        <path d="M170 108 l-6 8 M170 108 l6 8" fill="none" stroke="var(--steel)" stroke-width="2"/>
+        <!-- дренаж -->
+        <circle cx="105" cy="452" r="9" fill="none" stroke="var(--steel)" stroke-width="2"/>
+        <text x="92" y="480" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">дренаж ⌀110</text>
+        <text x="92" y="493" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="var(--steel)">i=0,005</text>
+        <!-- отметки -->
+        <g font-family="JetBrains Mono, monospace" font-size="10.5" fill="var(--ink-2)">
+          <line x1="640" y1="292" x2="726" y2="292" stroke="var(--ink-3)"/><text x="730" y="296">+0,150</text>
+          <line x1="640" y1="314" x2="726" y2="314" stroke="var(--ink-3)"/><text x="730" y="318">−0,250</text>
+          <line x1="383" y1="325" x2="726" y2="325" stroke="var(--ink-3)" stroke-dasharray="3 4"/><text x="730" y="329">−0,450</text>
+          <line x1="383" y1="429" x2="726" y2="429" stroke="var(--ink-3)"/><text x="730" y="433">−2,600</text>
+          <line x1="400" y1="457" x2="726" y2="457" stroke="var(--ink-3)" stroke-dasharray="3 4"/><text x="730" y="461">−2,950</text>
+          <text x="640" y="520" text-anchor="end">УГВ по геологии −3,200 (весенний максимум −2,400)</text>
+          <line x1="30" y1="510" x2="750" y2="510" stroke="var(--steel)" stroke-width="1.5" stroke-dasharray="10 6"/>
+        </g>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--moss);opacity:.5"></i>монолит W8 F150</span>
+        <span><i style="background:var(--steel-soft);border-color:var(--steel)"></i>ЭППС и гидроизоляция</span>
+        <span><i style="background:var(--copper-soft);border-color:var(--copper)"></i>печь и дымоход</span>
+        <span><i style="background:var(--paper-3)"></i>конструкции бани</span>
+      </div>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Слой снизу вверх</th><th>Состав и толщина</th><th>Зачем именно так</th></tr></thead>
+        <tbody>
+          <tr><td>Основание</td><td>Уплотнённый песок 200 мм + щебень фр. 20–40, 150 мм, трамбовка слоями по 100 мм</td><td>Разрывает капиллярный подсос воды из грунта</td></tr>
+          <tr><td>Подготовка</td><td>Бетон В7,5, 100 мм</td><td>Ровная база под гидроизоляцию — по щебню её не наклеить</td></tr>
+          <tr><td>Гидроизоляция низа</td><td>2 слоя наплавляемой битум-полимерной мембраны с заводом на стены на 300 мм</td><td>Работает на прижим — вода прижимает её к бетону, а не отрывает</td></tr>
+          <tr><td>Плита</td><td>Монолит 250 мм, бетон В25 W8 F150, арматура ⌀12 А500С, сетка 200×200 в два ряда</td><td>W8 — марка по водонепроницаемости, ключевой параметр, а не «просто бетон»</td></tr>
+          <tr><td>Стены ванны</td><td>Монолит 250 мм, тот же бетон, вертикальный шов бетонируется с гидрошпонкой</td><td>Холодный шов «плита–стена» — место протечки №1, гидрошпонка его закрывает</td></tr>
+          <tr><td>Гидроизоляция стен</td><td>Обмазочная цементно-полимерная 2 слоя + мембрана + профилированная геомембрана с геотекстилем</td><td>Три рубежа: обмазка держит влагу, мембрана — воду, геомембрана — механику и дренаж</td></tr>
+          <tr><td>Утепление снаружи</td><td>ЭППС 100 мм по всей высоте стены + 600 мм «юбки» по периметру на глубине 500 мм</td><td>Держит погреб в диапазоне +2…+8 °C и отсекает промерзание углов</td></tr>
+          <tr><td>Перекрытие погреба</td><td>Монолит 200 мм по несъёмной опалубке, оперт на стены ванны</td><td>Несёт баню, печь-фундамент — отдельно, чтобы не передавать вибрацию и тепло</td></tr>
+          <tr><td>Разделитель «баня / погреб»</td><td>Оклеечная гидроизоляция + ЭППС 100 мм + стяжка 80 мм с ТП + керамогранит</td><td>Ни капли воды и ни одного градуса из бани в погреб не проходит</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid-cards">
+      <div class="node node--steel">
+        <div class="node__t">Вентиляция погреба · приточно-вытяжная</div>
+        <ul class="ticks steel">
+          <li>Две трубы ⌀125 в противоположных углах: приток опущен до отметки «пол + 100 мм», вытяжка забирает под потолком и выходит выше конька на 500 мм.</li>
+          <li>Перепад высот между устьями ≥ 3 м — этого достаточно для естественной тяги без вентилятора.</li>
+          <li>На вытяжке — канальный вентилятор 100 м³/ч на случай безветренного лета, включается по гигростату при RH &gt; 85 %.</li>
+          <li>Обе трубы утеплены на всём протяжении внутри тёплого контура: иначе зимой на них выпадет конденсат и потечёт в погреб.</li>
+          <li>Задвижки на обеих трубах: зимой при −20 °C поток прикрывается, чтобы не выморозить закрома.</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node__t">Пять ошибок, которых здесь нет</div>
+        <ul class="ticks">
+          <li><b>Люк из мойки.</b> Конденсат стекает по лестнице вниз — погреб сыреет. Вход только из сухого тамбура.</li>
+          <li><b>Погреб под парной и под печью.</b> Локальный нагрев потолка даёт точку росы прямо над продуктами.</li>
+          <li><b>Одна вентиляционная труба.</b> Без пары «приток–вытяжка» воздух не движется вообще.</li>
+          <li><b>Гидроизоляция изнутри.</b> Вода отрывает её от бетона давлением. Только снаружи, только на прижим.</li>
+          <li><b>Утепление изнутри без разделения.</b> Точка росы уходит в бетон, стена мокнет и цветёт.</li>
+        </ul>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Что стоит в погребе из оборудования</div>
+        <ul class="ticks moss">
+          <li>Датчик температуры и влажности с журналом в приложении, порог оповещения +10 °C / RH 90 %.</li>
+          <li>Датчик протечки на полу у приямка + приямок 400 × 400 × 400 с дренажным насосом на аварийный случай.</li>
+          <li>Свет 4000 K, IP65, включение датчиком движения на лестнице; выключатель продублирован в тамбуре бани.</li>
+          <li>Розетка IP44 одна — для насоса, на отдельном автомате с УЗО 10 мА.</li>
+          <li>Стеллажи — лиственница без лака: покрытие в холодной влажной среде отслаивается, дерево должно дышать.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>КР-02</b>Конструктив</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Из чего собран дом</h2>
+      <p>Конструктив выбран под одну задачу: тёплый контур без мостиков холода, который строится за один сезон и не требует усадочной паузы. Отсюда — утеплённая шведская плита и каркас на LVL-стойках вместо кладки.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Конструкция</th><th>Состав</th><th class="num">R, м²·°C/Вт</th></tr></thead>
+        <tbody>
+          <tr><td>Фундамент дома</td><td>УШП: щебень 300, ЭППС 200 + 100 по краю, монолит 100 мм с контурами тёплого пола, бетон В25</td><td class="num">6,2</td></tr>
+          <tr><td>Наружная стена</td><td>Каркас 240 мм (LVL-стойки 45×240, шаг 600) + каменная вата 240 + перекрёстное утепление 50 + ветрозащита + вентзазор 40 + фасад</td><td class="num">6,8</td></tr>
+          <tr><td>Пароизоляция</td><td>Мембрана с переменной паропроницаемостью, все стыки проклеены, все проходы — манжеты</td><td class="num">—</td></tr>
+          <tr><td>Кровля</td><td>Стропила 50×250 + вата 250 + перекрёстно 50, вентзазор 50, диффузионная мембрана</td><td class="num">7,9</td></tr>
+          <tr><td>Перекрытие 1–2 эт.</td><td>Двутавровые балки 300 мм, шаг 400, звукоизоляция 200 мм, ГВЛ 2 слоя + плавающая стяжка 60 мм</td><td class="num">Rw 58 дБ</td></tr>
+          <tr><td>Окна</td><td>Двухкамерный стеклопакет с двумя i-стёклами и аргоном, тёплая рамка, профиль 76 мм</td><td class="num">0,95 (Uw 1,05)</td></tr>
+          <tr><td>Фасад дома</td><td>Планкен из термососны, обработка Shou Sugi Ban (обжиг) + масло; цоколь — фиброцемент графит</td><td class="num">—</td></tr>
+          <tr><td>Фасад бани</td><td>Тот же обожжённый планкен, но горизонтально — чтобы объёмы читались как разные</td><td class="num">—</td></tr>
+          <tr><td>Кровельное покрытие</td><td>Фальц из стали с покрытием матовый графит, скрытый водосток в плоскости фасада</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col small muted"><p>Расчётные теплопотери дома при −28 °C: 9,4 кВт, удельно 45 Вт/м². Класс энергоэффективности A. Годовое потребление на отопление ≈ 68 кВт·ч/м².</p></div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ОВ · ВК · ЭОМ</b>Инженерия</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Инженерия: то, что не видно и стоит трети бюджета</h2>
+      <p>Правило простое: всё, что обслуживается, должно быть доступно без вскрытия отделки. Коллекторы — в шкафах, тёплый пол — без соединений в стяжке, канализация — с ревизиями, электрика — с бирками на каждой линии.</p>
+    </div>
+    <div class="grid-cards">
+      <div class="node">
+        <div class="node__t">Отопление и ГВС</div>
+        <dl class="kv">
+          <dt>Источник</dt><dd>Газовый конденсационный котёл 24 кВт + резервный электрокотёл 9 кВт с автопереключением</dd>
+          <dt>Система</dt><dd>Водяной тёплый пол на обоих этажах, 14 контуров, шаг 150 мм в жилых, 100 мм в ванных и у панорам</dd>
+          <dt>Радиаторы</dt><dd>Только два: внутрипольный конвектор вдоль панорамы 5,6 м и полотенцесушители в ванных</dd>
+          <dt>ГВС</dt><dd>Бойлер косвенного нагрева 200 л + рециркуляция по кольцу: горячая вода в любой точке за 3 секунды</dd>
+          <dt>Баня</dt><dd>Свой узел: ТП в мойке и комнате отдыха, бойлер 80 л; в дежурном режиме зимой +16 °C</dd>
+          <dt>Автоматика</dt><dd>Погодозависимое управление по уличному датчику, комнатные термостаты в каждом помещении</dd>
+        </dl>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">Вентиляция</div>
+        <dl class="kv">
+          <dt>Установка</dt><dd>Приточно-вытяжная с роторным рекуператором, КПД 87 %, 450 м³/ч, в котельной на виброопорах</dd>
+          <dt>Приток</dt><dd>Спальни, гостиная, кабинет — щелевые диффузоры в потолке</dd>
+          <dt>Вытяжка</dt><dd>Кухня, санузлы, постирочная, гардеробная</dd>
+          <dt>Кухня</dt><dd>Отдельная вытяжка островной зоны с выбросом на фасад, обратный клапан</dd>
+          <dt>Каналы</dt><dd>Оцинковка с шумоглушителями на первых 3 м; гибкие воздуховоды не применяются вообще</dd>
+          <dt>Баня и погреб</dt><dd>Полностью автономные системы, с домом не связаны (иначе банный пар уйдёт в спальни)</dd>
+        </dl>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Вода и канализация</div>
+        <dl class="kv">
+          <dt>Источник</dt><dd>Скважина 62 м на известняк, кессон, насос 1,1 кВт, гидроаккумулятор 100 л</dd>
+          <dt>Водоподготовка</dt><dd>Механика 100 и 20 мкм → обезжелезиватель → умягчитель → УФ; анализ воды до подбора обязателен</dd>
+          <dt>Разводка</dt><dd>Сшитый полиэтилен в гофре, коллекторная схема, ни одного соединения в стяжке</dd>
+          <dt>Канализация</dt><dd>Внутренняя ⌀110 с уклоном 0,02, шумопоглощающая труба в стояке, фановый выход на кровлю</dd>
+          <dt>Очистка</dt><dd>Станция биоочистки на 5–6 человек, отвод очищенной воды в фильтрующий колодец</dd>
+          <dt>Морозостойкость</dt><dd>Ввод ниже глубины промерзания 1,6 м + греющий кабель на участке ввода в дом</dd>
+        </dl>
+      </div>
+      <div class="node">
+        <div class="node__t">Электрика (ЭОМ)</div>
+        <dl class="kv">
+          <dt>Ввод</dt><dd>380 В, 15 кВт, ВРУ на границе участка, УЗИП класса I+II</dd>
+          <dt>Щит дома</dt><dd>72 модуля: 6 групп освещения, 11 розеточных, отдельные линии на котёл, вентустановку, скважину, варочную (6 мм²), духовку, ТП-коллекторы</dd>
+          <dt>Защита</dt><dd>Дифавтоматы 30 мА на все розеточные, 10 мА — на ванные, баню и погреб</dd>
+          <dt>Кабель</dt><dd>ВВГнг(А)-LS: свет 1,5 мм², розетки 2,5 мм², варочная 6 мм², ввод бани 6 мм² в трубе под землёй</dd>
+          <dt>Щит бани</dt><dd>Свой, на 12 модулей, с вводным дифавтоматом 30 мА и отдельной линией на погреб</dd>
+          <dt>Резерв</dt><dd>Ввод под генератор 6 кВт с реверсивным рубильником: котёл, скважина, холодильник, свет, роутер</dd>
+          <dt>Заземление</dt><dd>Модульно-штыревой контур, СУП в котельной и в каждой мокрой зоне</dd>
+        </dl>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">Слаботочка и умный дом</div>
+        <ul class="ticks steel">
+          <li>Слаботочный шкаф в постирочной: роутер, PoE-коммутатор, NVR, ИБП на 1 кВт.</li>
+          <li>Витая пара CAT6 в каждую комнату (2 порта), точки Wi-Fi 6 в потолке — на этаж и в баню.</li>
+          <li>Сценарии: «Уехали» (отопление −4 °C, вода перекрыта, свет-имитация присутствия), «Баня через 3 часа» (прогрев бани и ТП мойки), «Ночь», «Гости».</li>
+          <li>Датчики протечки на всех мокрых точках + два электроклапана на вводе (ХВС и ГВС).</li>
+          <li>Видеонаблюдение: 4 камеры по периметру, домофон у калитки, электрозамок.</li>
+          <li>Локальный сервер автоматики — работает без интернета; облако только для уведомлений.</li>
+        </ul>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Свет: сценарии, а не люстры</div>
+        <ul class="ticks moss">
+          <li>Три слоя в каждой комнате: общий (профиль в потолке), рабочий (треки, подсветка фартука 4000 K), акцентный (2700 K, бра, подсветка ниш).</li>
+          <li>Гостиная — 200 лк общего, 500 лк на кухонном фронте, 300 лк на столе; диммирование по всем группам.</li>
+          <li>Двусвет: подвес-скульптура на лебёдке — опускается для мытья; тросовая система, а не леса.</li>
+          <li>Спальни — вся техника ниже уровня глаз лежащего, ночная подсветка плинтуса 2200 K по датчику.</li>
+          <li>Улица: подсветка фасада снизу, дорожки — низкие столбики 3000 K, свет бани отдельным сценарием, астротаймер.</li>
+          <li>CRI ≥ 90 везде, где едят и одеваются. Разнобой по цветовой температуре в одном помещении — запрещён.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ДИ</b>Материалы</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Палитра: обожжённое дерево, известковая стена, медь</h2>
+      <p>Снаружи дом почти чёрный, внутри — светлый и тёплый. Такой контраст даёт эффект, ради которого обычно тратят миллионы на «дизайнерские» решения: пространство читается объёмом и материалом, а не декором. Три материала ведут весь дом, четвёртый и пятый работают акцентами.</p>
+    </div>
+    <div class="swatches">
+      <div class="sw"><i style="background:#1E1C1A"></i><span><b>Обожжённая сосна</b>фасад, экстерьер · Shou&nbsp;Sugi&nbsp;Ban + масло</span></div>
+      <div class="sw"><i style="background:#E7E4DC"></i><span><b>Известковая штукатурка</b>стены интерьера · матовая, дышащая</span></div>
+      <div class="sw"><i style="background:#C4A87C"></i><span><b>Дуб, брашированный</b>полы, лестница, столярка · масло-воск</span></div>
+      <div class="sw"><i style="background:#9C4F26"></i><span><b>Медь патинированная</b>вытяжка, светильники, ручки</span></div>
+      <div class="sw"><i style="background:#3E5A46"></i><span><b>Тёмно-зелёный</b>кухонные фасады, двери погреба</span></div>
+      <div class="sw"><i style="background:#5B5F5C"></i><span><b>Графитовый камень</b>столешницы, портал камина · спечённый кварц</span></div>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Зона</th><th>Пол</th><th>Стены</th><th>Потолок</th></tr></thead>
+        <tbody>
+          <tr><td>Кухня-гостиная</td><td>Дуб 190 мм, ёлка «палубная», масло</td><td>Известковая штукатурка, портал камина — камень</td><td>Гладкий, теневой шов по периметру</td></tr>
+          <tr><td>Спальни</td><td>Дуб, тот же тон — вся площадь одним материалом</td><td>Штукатурка + акцентная стена из реек дуба за изголовьем</td><td>Шторный карман, гладкий</td></tr>
+          <tr><td>Ванные</td><td>Керамогранит 60×120, R10, тёплый пол</td><td>Крупноформат до потолка в мокрой зоне, штукатурка — в сухой</td><td>Влагостойкий, скрытый люк ревизии</td></tr>
+          <tr><td>Тамбур, постирочная</td><td>Керамогранит, тёплый пол, трап в постирочной</td><td>Моющаяся краска</td><td>Гладкий</td></tr>
+          <tr><td>Комната отдыха бани</td><td>Керамогранит «под камень», тёплый пол</td><td>Термоясень горизонтально + штукатурка</td><td>Термоясень, балки открыты</td></tr>
+          <tr><td>Парная</td><td>Керамогранит с трапом, деревянный настил-решётка</td><td>Термоольха по фольге, вентзазор 20 мм</td><td>Термоольха, высота 2 250</td></tr>
+          <tr><td>Погреб</td><td>Керамогранит по стяжке, уклон к приямку</td><td>Бетон, обработанный проникающим составом (никакой краски)</td><td>Бетон + минеральная штукатурка</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>СМ</b>Смета</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Бюджет по разделам</h2>
+      <p>Ориентир на III кв. 2026 г., Московская область, работа подрядчика со своей бригадой и материалы среднего-плюс сегмента. Диапазон — это не «вилка на всякий случай», а честная разница между разумным и премиальным исполнением внутри одной и той же конструкции.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Раздел</th><th class="num">Мин., млн ₽</th><th class="num">Макс., млн ₽</th><th>Что определяет разброс</th></tr></thead>
+        <tbody>
+          <tr><td>Изыскания, геология, проект АР+КР+инженерия</td><td class="num">0,9</td><td class="num">1,3</td><td>Полнота рабочей документации</td></tr>
+          <tr><td>Земляные работы, монолитная ванна погреба, гидроизоляция, дренаж</td><td class="num">1,8</td><td class="num">2,4</td><td>Объём выемки, необходимость водопонижения</td></tr>
+          <tr><td>УШП дома и плита бани</td><td class="num">1,9</td><td class="num">2,4</td><td>Толщина ЭППС, класс бетона</td></tr>
+          <tr><td>Тёплый контур дома: каркас, кровля, окна</td><td class="num">5,8</td><td class="num">6,6</td><td>Площадь остекления, профиль окон</td></tr>
+          <tr><td>Банный блок и переход, конструктив</td><td class="num">2,2</td><td class="num">2,8</td><td>Остекление перехода, высота парной</td></tr>
+          <tr><td>Фасады, включая обжиг планкена</td><td class="num">2,0</td><td class="num">2,6</td><td>Обжиг на площадке или заводской</td></tr>
+          <tr><td>Инженерия: ОВ, ВК, ЭОМ, слаботочка, автоматика</td><td class="num">5,2</td><td class="num">6,0</td><td>Глубина автоматизации, бренд оборудования</td></tr>
+          <tr><td>Печь, дымоход, отделка парной, купель</td><td class="num">1,4</td><td class="num">1,9</td><td>Печь серийная или кладочная</td></tr>
+          <tr><td>Отделка дома</td><td class="num">6,0</td><td class="num">7,0</td><td>Штукатурка vs декоративные покрытия, столярка</td></tr>
+          <tr><td>Отделка бани и погреба, стеллажи</td><td class="num">1,3</td><td class="num">1,7</td><td>Порода дерева в парной</td></tr>
+          <tr><td>Кухня, встроенная мебель, сантехника, свет</td><td class="num">3,4</td><td class="num">4,2</td><td>Главная точка эластичности бюджета</td></tr>
+          <tr><td>Скважина, септик, навес, терраса, благоустройство</td><td class="num">2,3</td><td class="num">3,0</td><td>Глубина скважины, площадь мощения</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td>Итого «под ключ», с мебелью и участком</td><td class="num">34,2</td><td class="num">41,9</td><td class="mono">≈ 124–152 тыс ₽/м²</td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="grid-cards">
+      <div class="node">
+        <div class="node__t">Где резать без потери качества</div>
+        <ul class="ticks">
+          <li>Мебель и свет — покупаются постепенно, дом от этого не страдает.</li>
+          <li>Благоустройство переносится на второй год: газон и мощение никак не связаны с домом.</li>
+          <li>Лоджия и часть террасы — отдельным этапом.</li>
+          <li>Отделка второго этажа: можно въехать с готовым первым.</li>
+        </ul>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">На чём экономить нельзя</div>
+        <ul class="ticks steel">
+          <li>Геология и гидроизоляция погреба: переделка стоит дороже, чем весь погреб.</li>
+          <li>Окна и контур герметичности: меняются только со стеной.</li>
+          <li>Кровля и её узлы примыкания.</li>
+          <li>Электрика и труба в стяжке — всё, что замуровано.</li>
+          <li>Дымоход и узлы прохода через конструкции.</li>
+        </ul>
+      </div>
+      <div class="node node--moss">
+        <div class="node__t">Стоимость владения, в год</div>
+        <dl class="kv">
+          <dt>Газ</dt><dd>≈ 72 000 ₽ (отопление + ГВС)</dd>
+          <dt>Электричество</dt><dd>≈ 96 000 ₽</dd>
+          <dt>Обслуживание</dt><dd>≈ 60 000 ₽ (котёл, вентустановка, водоподготовка, дымоход)</dd>
+          <dt>Дрова</dt><dd>≈ 25 000 ₽ (6 м³ колотой берёзы)</dd>
+          <dt>Итого</dt><dd class="mono">≈ 253 000 ₽/год, или 21 000 ₽/мес.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ПОС</b>График</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Как это строится: 16 месяцев</h2>
+      <p>График привязан к сезону. Монолит погреба — только в тёплое время: зимнее бетонирование ванны с противоморозными добавками ухудшит именно водонепроницаемость, а это главное свойство конструкции.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th class="num">Мес.</th><th>Этап</th><th>Критично проконтролировать</th></tr></thead>
+        <tbody>
+          <tr><td class="num">0</td><td>Геология, топосъёмка, ГПЗУ, эскизный проект</td><td>Скважины бурить в пятне бани, а не «где удобно»</td></tr>
+          <tr><td class="num">1–3</td><td>Рабочая документация АР, КР, ОВ, ВК, ЭОМ, смета</td><td>Все узлы гидроизоляции — до тендера, а не «по месту»</td></tr>
+          <tr><td class="num">4</td><td>Котлован, дренаж, монолитная ванна погреба</td><td>Гидрошпонка в шве, вибрирование, уход за бетоном 7 суток</td></tr>
+          <tr><td class="num">5</td><td>Гидроизоляция, утепление, обратная засыпка, перекрытие погреба</td><td>Испытание ванны наливом воды на 3 суток до засыпки</td></tr>
+          <tr><td class="num">6</td><td>УШП дома, плита бани, вводы коммуникаций</td><td>Все гильзы и вводы заложены до бетонирования — потом не добавить</td></tr>
+          <tr><td class="num">7–8</td><td>Каркас дома и бани, кровля, окна</td><td>Геометрия, влажность пиломатериала &lt; 18 %</td></tr>
+          <tr><td class="num">9</td><td>Контур герметичности, черновая инженерия, печь и дымоход</td><td>Тест Blower Door до закрытия стен: n₅₀ ≤ 1,5 1/ч</td></tr>
+          <tr><td class="num">10–11</td><td>Фасады, утепление, стяжки, штукатурка</td><td>Опрессовка ТП и водопровода под давлением при заливке стяжки</td></tr>
+          <tr><td class="num">12–14</td><td>Чистовая отделка, парная, погреб, столярка</td><td>Влажностный режим: стяжка сохнет 28 суток до укладки дуба</td></tr>
+          <tr><td class="num">15</td><td>Пусконаладка инженерии, мебель, свет</td><td>Балансировка вентиляции по замерам, а не «на глаз»</td></tr>
+          <tr><td class="num">16</td><td>Благоустройство, приёмка, исполнительная документация</td><td>Тепловизионная съёмка при Δt ≥ 15 °C</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="sheet">
+  <div class="sheet__mark"><b>ПР</b>Приёмка</div>
+  <div class="sheet__body">
+    <div class="col">
+      <h2>Чек-лист приёмки: 12 пунктов, которые решают всё</h2>
+      <p>Каждый пункт — с измеримым критерием и с актом. Всё, что закрывается конструкцией, фотографируется с рулеткой в кадре и складывается в один альбом скрытых работ.</p>
+    </div>
+    <div class="grid-cards">
+      <div class="node node--moss">
+        <div class="node__t">Погреб и фундаменты</div>
+        <ul class="ticks moss">
+          <li>Налив воды в ванну погреба на 300 мм, выдержка 72 ч — уровень не падает, наружные грани сухие.</li>
+          <li>Дренаж пролит водой: приход в колодец не позже 10 минут, уклон подтверждён нивелиром.</li>
+          <li>Протокол на бетон: класс В25, W8, F150 — по результатам испытания кубиков в 28 суток.</li>
+          <li>Через год эксплуатации: контрольный замер RH в погребе зимой и в августе — норма 85–95 % при +2…+8 °C.</li>
+        </ul>
+      </div>
+      <div class="node node--steel">
+        <div class="node__t">Тепловой контур</div>
+        <ul class="ticks steel">
+          <li>Blower Door: n₅₀ ≤ 1,5 1/ч, дважды — до отделки и на сдаче.</li>
+          <li>Тепловизор по всем углам, примыканиям кровли и оконным откосам: перепад по внутренней поверхности ≤ 4 °C.</li>
+          <li>Окна: проверка прижима, отсутствие продувания по периметру створки бумажным тестом.</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node__t">Инженерия</div>
+        <ul class="ticks">
+          <li>Опрессовка водопровода 10 бар / 2 ч и тёплого пола 6 бар / 24 ч — с протоколом.</li>
+          <li>Балансировка вентиляции анемометром по каждому диффузору, отклонение от проекта ≤ 10 %.</li>
+          <li>Электрика: замер сопротивления изоляции и контура заземления (≤ 4 Ом), тест каждого УЗО кнопкой и прибором.</li>
+          <li>Тяга дымохода и первая протопка бани — в присутствии заказчика, с проверкой узла прохода тепловизором.</li>
+          <li>Исполнительные схемы разводки в стенах и полах: без них любое сверление — лотерея.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="warn"><b>Что нужно от вас, чтобы двинуться дальше.</b> Геология в пятне бани (2 скважины по 6 м), топосъёмка участка с горизонталями, техусловия на газ и электричество и решение по трём развилкам: печь серийная или кладочная, кухня в проекте или отдельным подрядом, глубина автоматизации. После этого проект переводится в рабочую документацию — 4 альбома, 8–10 недель.</div>
+  </div>
+</section>
+
+<footer class="foot">
+  Эскизный проект жилого дома с банным блоком и погребом. Все размеры и площади — проектные, подлежат уточнению по результатам инженерных изысканий и рабочей документации. Стоимостные показатели — ориентировочные, на III кв. 2026 г. для Московской области.
+</footer>
+
+</div>
