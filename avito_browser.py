@@ -57,6 +57,15 @@ HEADLESS = os.getenv("AVITO_BROWSER_HEADLESS", "0").strip() in ("1", "true", "ye
 # встроенный в Playwright (на этой машине он не запускается, см. пункт 2).
 CHANNEL = os.getenv("AVITO_BROWSER_CHANNEL", "chrome").strip() or None
 
+# Прямой путь к файлу браузера. Перебивает CHANNEL.
+#
+# Нужен на сервере. Playwright качает свой Chromium со склада, до которого
+# с этого сервера 184 МБ едут дольше полутора часов и обрываются. А в самом
+# Debian Chromium есть, и его склад отвечает быстро - системные библиотеки
+# оттуда ставились за секунды. Поэтому в контейнере ставится обычный
+# пакет chromium, а сюда прописывается путь к нему.
+EXECUTABLE = os.getenv("AVITO_BROWSER_PATH", "").strip()
+
 # Папка профиля: печенья, накопленные браузером, должны переживать
 # перезапуски бота. Иначе каждый запуск начинается с капчи заново.
 PROFILE_DIR = os.getenv("AVITO_BROWSER_PROFILE") or os.path.join(HERE, "browser_profile")
@@ -140,9 +149,13 @@ async def _ensure_page():
     try:
         # Именно persistent_context, а не launch: обычный запуск каждый раз
         # заводит пустой временный профиль, а нам нужен тот же самый.
+        # Путь к файлу и «канал» - взаимоисключающие: указав оба, получишь
+        # отказ ещё до запуска.
+        which = ({"executable_path": EXECUTABLE} if EXECUTABLE
+                 else {"channel": CHANNEL})
         _context = await _playwright.chromium.launch_persistent_context(
             PROFILE_DIR,
-            channel=CHANNEL,
+            **which,
             headless=HEADLESS,
             locale="ru-RU",
             timezone_id="Europe/Moscow",
@@ -295,5 +308,5 @@ def label() -> str:
     """Как ходим - для диагностики в Telegram."""
     if not PLAYWRIGHT_AVAILABLE:
         return "браузер недоступен (playwright не установлен)"
-    return (f"браузер {'скрытый' if HEADLESS else 'видимый'}"
-            f", {CHANNEL or 'встроенный'}")
+    which = os.path.basename(EXECUTABLE) if EXECUTABLE else (CHANNEL or "встроенный")
+    return f"браузер {'скрытый' if HEADLESS else 'видимый'}, {which}"
