@@ -8,3 +8,6 @@ data/
 browser_profile/
 browser_profile_check/
 last.html
+# Логи запуска дома: пишутся при каждом старте, в git им не место.
+bot.log
+bot.err
