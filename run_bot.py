@@ -7,7 +7,10 @@
 """
 import os
 import socket
+import subprocess
 import sys
+import time
+from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
@@ -67,10 +70,62 @@ print(RULER)
 print("  ПЕРЕКУП 23 - бот запускается")
 print(RULER)
 print("  Это окно закрывать нельзя: пока оно открыто, бот работает.")
-print("  Остановить - Ctrl+C или закрыть окно.")
+print("  Если бот остановится - подниму его сам, окно трогать не нужно.")
+print("  Остановить совсем - Ctrl+C или закрыть окно.")
 print(RULER + "\n")
 
-import avito_bot
+# ========== ПРИСМОТР ==========
+# Бот запускается не здесь, а отдельным процессом, за которым этот
+# приглядывает и поднимает заново, если тот вышел.
+#
+# Зачем понадобилось. Внутри бота живёт сторож связи: намолчал опрос
+# Telegram три минуты - выходим, «пусть перезапустят». Писался он под
+# сервер, где контейнер поднимает Docker. Дома поднимать было некому, и
+# выход означал смерть насовсем.
+#
+# Так и вышло в ночь на 27.08.2026. Компьютер уснул в 20:39, утром
+# проснулся, сторож увидел двенадцать часов молчания - и вышел. Бот не
+# работал до вечера, и по логу это выглядело как «просто перестал».
+#
+# Сон компьютера этим не лечится: пока он спит, никто ничего не ищет.
+# Лечится только тем, чтобы не давать ему засыпать.
+RESTART_DELAY = 5
+# Если бот падает сразу после запуска раз за разом - дело не в связи, а в
+# поломке, и крутить бесконечный хоровод перезапусков незачем.
+FAST_FAIL_LIMIT = 5
+FAST_FAIL_SECONDS = 60
 
-avito_bot.build_app().run_polling(drop_pending_updates=True,
-                                  allowed_updates=avito_bot.ALLOWED_UPDATES)
+
+def stamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+fast_fails = 0
+while True:
+    started = time.time()
+    try:
+        code = subprocess.call([sys.executable, "avito_bot.py"])
+    except KeyboardInterrupt:
+        print(f"\n  [{stamp()}] Остановлено вручную. До встречи.")
+        break
+
+    lived = time.time() - started
+    fast_fails = fast_fails + 1 if lived < FAST_FAIL_SECONDS else 0
+
+    if fast_fails >= FAST_FAIL_LIMIT:
+        fail(f"Бот падает сразу после запуска, {FAST_FAIL_LIMIT} раз подряд.",
+             "",
+             "Это уже не обрыв связи, а поломка. Покажи последние строки выше -",
+             "по ним будет видно, что именно сломалось.")
+
+    # flush обязателен: когда вывод идёт не в окно, а в файл, Python
+    # придерживает его в памяти, и сообщение о перезапуске туда не попадает
+    # до самого конца работы - то есть ровно тогда, когда оно уже не нужно.
+    print(f"\n  [{stamp()}] Бот остановился (код {code}), "
+          f"проработав {int(lived // 60)} мин. Поднимаю заново через "
+          f"{RESTART_DELAY} с.\n", flush=True)
+    try:
+        time.sleep(RESTART_DELAY)
+    except KeyboardInterrupt:
+        print(f"  [{stamp()}] Остановлено вручную. До встречи.")
+        break
