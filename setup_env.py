@@ -95,8 +95,34 @@ def ask_groq(current: str) -> str:
         return value
 
 
+def ask_channel(current: str) -> str:
+    print("\n4. КАНАЛ ДЛЯ НАХОДОК (можно пропустить)")
+    print("   Бот будет выкладывать находки в канал - но с отставанием")
+    print("   в полчаса, чтобы подписчики не забирали лоты раньше тебя.")
+    print("   Порог у канала мягче твоего: тебе - только самое вкусное,")
+    print("   в канал - всё стоящее.")
+    print("")
+    print("   Что вписать: публичное имя канала вместе с собачкой,")
+    print("   например @krd_nahodki. У закрытого канала - его номер,")
+    print("   он начинается на -100 (узнать: перешли любое сообщение")
+    print("   из канала боту @userinfobot).")
+    print("")
+    print("   Бота нужно добавить в канал администратором с правом")
+    print("   публикации - без этого Telegram его туда не пустит.")
+    print("   Нажми Enter, чтобы пропустить.")
+    if current:
+        print(f"   Сейчас вписан {current}. Enter - оставить.")
+    while True:
+        value = input("\n   Канал: ").strip()
+        if not value:
+            return current
+        if value.startswith("@") or value.lstrip("-").isdigit():
+            return value
+        print("   Ожидается либо @имя, либо номер вида -1001234567890.")
+
+
 def ask_proxy(current: str) -> str:
-    print("\n4. ПРОКСИ ДЛЯ АВИТО (можно пропустить)")
+    print("\n5. ПРОКСИ ДЛЯ АВИТО (можно пропустить)")
     print("   Нужен, если Авито отвечает капчей. Вид строки:")
     print("   http://логин:пароль@адрес:порт")
     print("   Нажми Enter, чтобы пропустить.")
@@ -146,12 +172,14 @@ def main():
     token = ask_token(current_value(text, "AVITO_BOT_TOKEN"))
     owner = ask_id(current_value(text, "AVITO_OWNER_ID"))
     groq = ask_groq(current_value(text, "GROQ_API_KEY"))
+    channel = ask_channel(current_value(text, "AVITO_CHANNEL_CHAT"))
     proxy = ask_proxy(current_value(text, "AVITO_PROXY"))
 
     text = put(text, "AVITO_BOT_TOKEN", token)
     text = put(text, "AVITO_OWNER_ID", owner)
     text = put(text, "AVITO_OWNER_CHAT", owner)
     text = put(text, "GROQ_API_KEY", groq)
+    text = put(text, "AVITO_CHANNEL_CHAT", channel)
     text = put(text, "AVITO_PROXY", proxy)
 
     with open(ENV, "w", encoding="utf-8") as f:
@@ -162,6 +190,7 @@ def main():
     print(f"  Консультант: {'включён' if groq else 'выключен, ключа нет'}")
     # Пароль от прокси не показываем: он уже был бы на скриншоте.
     print(f"  Авито: {'через прокси' if proxy else 'напрямую, прокси нет'}")
+    print(f"  Канал: {channel + ', с отставанием в полчаса' if channel else 'нет, находки только тебе'}")
     print("  Теперь запускай «Запустить бота».")
     print("=" * 60)
 

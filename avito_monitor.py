@@ -95,6 +95,30 @@ MIN_STATS_SAMPLE = 8
 # Глубина истории для расчёта медианы, дней.
 STATS_WINDOW_DAYS = 21
 
+# ========== КАНАЛ ==========
+# Куда, кроме личной переписки, выкладывать находки. Пусто - канала нет и
+# ничего никуда не уходит; так по умолчанию.
+#
+# Годится и номер вида -1001234567890, и публичное имя вида @krd_nahodki.
+CHANNEL_CHAT = os.getenv("AVITO_CHANNEL_CHAT", "").strip()
+
+# Насколько канал отстаёт от владельца, секунд. Полчаса.
+#
+# Задержка - не украшение, а весь смысл затеи. Владелец перекупает: канал
+# с его же находками без задержки означает, что подписчики забирают лоты
+# раньше него самого. Полчаса хватает, чтобы позвонить и договориться, и
+# при этом канал остаётся живым - объявления в Краснодаре столько висят.
+# Отсюда же вырастает платный «ранний доступ», если он однажды понадобится:
+# это будет та же очередь, только с разным сроком для разных читателей.
+CHANNEL_DELAY = int(os.getenv("AVITO_CHANNEL_DELAY", "1800"))
+
+# Порог канала - свой, мягче владельцева.
+#
+# Владельцу шлётся только то, ради чего стоит ехать (вдвое дешевле рынка),
+# а такого набирается единицы в неделю - канал бы стоял пустым. Читателю
+# же интересен любой стоящий лот: он не едет за маржой, он покупает себе.
+CHANNEL_RATIO = float(os.getenv("AVITO_CHANNEL_RATIO", "0.7"))
+
 # Час отправки суточного отчёта (по времени сервера).
 DIGEST_HOUR = int(os.getenv("AVITO_DIGEST_HOUR", "21"))
 
@@ -345,6 +369,20 @@ def init_db():
                 key   TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            -- Очередь в канал. Лежит в базе, а не в памяти, потому что
+            -- полчаса ожидания запросто переживают перезапуск бота: дома
+            -- он поднимается заново после каждого обрыва связи, и очередь
+            -- в памяти означала бы, что находка теряется молча.
+            CREATE TABLE IF NOT EXISTS channel_queue (
+                item_id   TEXT PRIMARY KEY,
+                category  TEXT NOT NULL,
+                note      TEXT,
+                market    INTEGER,
+                due_at    REAL NOT NULL,
+                posted_at REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_queue_due ON channel_queue(posted_at, due_at);
         """)
     logger.info(f"Монитор Авито: база готова ({DB_PATH})")
 
@@ -381,6 +419,24 @@ def get_owner_chat() -> int | None:
     """Куда слать находки. Из базы, а если там пусто - из .env."""
     raw = get_setting("owner_chat") or os.getenv("AVITO_OWNER_CHAT", "")
     return int(raw) if raw else None
+
+
+def get_channel_chat() -> str | int | None:
+    """Куда выкладывать находки, кроме личной переписки.
+
+    Публичное имя канала возвращается строкой, номер - числом: Telegram
+    принимает и то, и другое, а вот строку «-1001234567890» он принимает
+    не везде, поэтому число приводится честно.
+    """
+    raw = (get_setting("channel_chat") or CHANNEL_CHAT or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("@"):
+        return raw
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
 
 
 # ========== ЗАПРОС К АВИТО ==========
@@ -1014,12 +1070,18 @@ def market_reference(key: str, page_ref: int | None = None) -> int | None:
 
 def rate_deal(item: dict, query: str, category: str | None = None,
               page_ref: int | None = None,
-              key: str | None = None) -> tuple[bool, str]:
+              key: str | None = None,
+              ratio: float | None = None) -> tuple[bool, str]:
     """Решает, стоит ли будить владельца из-за этого лота.
 
     page_ref - медиана текущей страницы выдачи. Нужна, пока своей истории
     по слову ещё нет: без неё первые недели бот либо молчал бы совсем, либо
     слал всё подряд.
+
+    ratio - порог, ниже которого цена считается вкусной. Он вынесен в
+    руки зовущего, потому что порогов теперь два: владельцу шлётся только
+    то, ради чего стоит ехать, каналу - всё стоящее. Одна и та же карточка
+    оценивается дважды, разной меркой.
     """
     price = item["price"]
     low, high = price_band(category if category is not None else category_of(query))
@@ -1038,6 +1100,8 @@ def rate_deal(item: dict, query: str, category: str | None = None,
     # это как ошибка расчёта.
     # Имя, под которым копятся цены. У Wildberries оно своё: «iphone» с рук
     # и «iphone» из магазина - разные рынки, и общая медиана врала бы обоим.
+    threshold = DEAL_RATIO if ratio is None else ratio
+
     median, sample = median_price(key or query)
     if median is not None:
         # Второй, мягкий порог («ниже медианы на 20%») убран 27.08.2026: он
@@ -1045,18 +1109,26 @@ def rate_deal(item: dict, query: str, category: str | None = None,
         # интересен глазу, но не стоит поездки - а разбудив на нём, бот
         # обесценивает и то сообщение, ради которого стоило ехать. Такие
         # лоты никуда не деваются: они ложатся в базу и видны в отчёте.
+        if price / median > threshold:
+            return False, ""
+        # Огонёк означает одно и то же везде - «вдвое дешевле рынка». В
+        # канале порог мягче, и если бы 🔥 стоял на каждом сообщении, читатель
+        # за неделю перестал бы его замечать - а вместе с ним и настоящие
+        # находки, ради которых всё и затевалось.
         if price / median <= DEAL_RATIO:
             return True, f"🔥 заметно дешевле медианы за {STATS_WINDOW_DAYS} дн ({sample} набл.)"
-        return False, ""
+        return True, f"дешевле медианы за {STATS_WINDOW_DAYS} дн ({sample} набл.)"
 
     if page_ref:
         # Спрос тот же, что и к накопленной истории, и снисхождения тут быть
         # не может: полсотни объявлений - срез грубый, там вперемешку разные
         # модели и состояния. Что не дотянуло - ляжет в историю и завтра
         # поучаствует в расчёте.
+        if price / page_ref > threshold:
+            return False, ""
         if price / page_ref <= DEAL_RATIO:
             return True, "🔥 заметно дешевле сегодняшней выдачи (истории пока нет)"
-        return False, ""
+        return True, "дешевле сегодняшней выдачи (истории пока нет)"
 
     # Ни истории, ни страницы - судить не по чему. Молчим: лот всё равно
     # уже в базе и завтра поучаствует в расчёте.
@@ -1125,6 +1197,86 @@ async def send_alert(bot, chat_id: int, item: dict, category: str, note: str,
                            parse_mode="HTML", disable_web_page_preview=False)
     with _connect() as conn:
         conn.execute("UPDATE items SET alerted = 1 WHERE item_id = ?", (item["item_id"],))
+
+
+# ========== ОЧЕРЕДЬ В КАНАЛ ==========
+def queue_for_channel(item: dict, category: str, note: str,
+                      market: int | None = None, delay: int | None = None):
+    """Кладёт находку в очередь на выкладку в канал.
+
+    Повторно та же карточка в очередь не встаёт: `INSERT OR IGNORE` по
+    первичному ключу. Это не мелочь - одно и то же объявление попадает в
+    выдачу круг за кругом, пока висит.
+    """
+    wait = CHANNEL_DELAY if delay is None else delay
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO channel_queue (item_id, category, note, market, due_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (item["item_id"], category, note, market, time.time() + wait),
+        )
+
+
+def due_for_channel(limit: int = 5) -> list:
+    """Что уже отстояло свою очередь и готово к выкладке.
+
+    Забирается горстью, а не всё разом: после долгого простоя - скажем,
+    компьютер был выключен сутки - в очереди накопится десяток находок, и
+    вывалить их одним залпом значит и получить от Telegram отказ по
+    частоте, и завалить читателя стеной сообщений.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT q.item_id, q.category, q.note, q.market, "
+            "       i.title, i.price, i.url, i.address "
+            "FROM channel_queue q JOIN items i ON i.item_id = q.item_id "
+            "WHERE q.posted_at IS NULL AND q.due_at <= ? "
+            "ORDER BY q.due_at LIMIT ?", (time.time(), limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_posted(item_id: str):
+    with _connect() as conn:
+        conn.execute("UPDATE channel_queue SET posted_at = ? WHERE item_id = ?",
+                     (time.time(), item_id))
+
+
+async def post_due_to_channel(bot) -> int:
+    """Выкладывает в канал всё, что отстояло очередь. Возвращает - сколько.
+
+    Зовётся часто и вхолостую: очередь смотрится между запросами к Авито,
+    то есть примерно раз в минуту. Иначе находка ждала бы не полчаса, а
+    полчаса плюс остаток круга - а круг идёт четверть часа.
+    """
+    chat = get_channel_chat()
+    if not chat:
+        return 0
+
+    posted = 0
+    for row in due_for_channel():
+        item = {"item_id": row["item_id"], "title": row["title"], "price": row["price"],
+                "url": row["url"], "address": row["address"]}
+        try:
+            await bot.send_message(
+                chat_id=chat,
+                text=build_alert(item, row["category"], row["note"] or "", row["market"]),
+                parse_mode="HTML", disable_web_page_preview=False)
+        except Exception as exc:
+            # Метку не ставим: не вышло - полежит и уйдёт следующей попыткой.
+            # Единственный случай, когда это плохо, - канал настроен неверно;
+            # тогда в логе будет ровно эта строка, круг за кругом.
+            logger.error(f"Канал: не выложил {row['item_id']} ({exc})")
+            break
+        mark_posted(row["item_id"])
+        posted += 1
+        # Telegram считает частоту по каналу отдельно и на залпе отвечает
+        # отказом. Секунда между сообщениями дешевле разбора этих отказов.
+        await asyncio.sleep(1)
+
+    if posted:
+        logger.info(f"Канал: выложено {posted}")
+    return posted
 
 
 def build_report(hours: int = 24) -> str:
@@ -1370,13 +1522,30 @@ async def monitor_loop(bot):
                                           i.get("age_min") or 0))
 
                 for item in fresh:
+                    # Две мерки на одну карточку. Владельцу - строгая: то,
+                    # ради чего стоит ехать. Каналу - мягче, и с отставанием
+                    # на полчаса, чтобы читатели не перехватывали лот у того,
+                    # кто их и собрал.
                     good, note = rate_deal(item, query, cat_key, page_ref, key)
-                    if not good:
-                        continue
-                    try:
-                        await send_alert(bot, chat_id, item, cat_key, note, market)
-                    except Exception as exc:
-                        logger.error(f"Монитор Авито: не отправил алерт ({exc})")
+                    if good:
+                        try:
+                            await send_alert(bot, chat_id, item, cat_key, note, market)
+                        except Exception as exc:
+                            logger.error(f"Монитор Авито: не отправил алерт ({exc})")
+
+                    if get_channel_chat():
+                        ok_channel, ch_note = rate_deal(item, query, cat_key, page_ref, key,
+                                                        ratio=CHANNEL_RATIO)
+                        if ok_channel:
+                            queue_for_channel(item, cat_key, ch_note, market)
+
+                # Очередь смотрится здесь, между запросами: круг идёт
+                # четверть часа, и ждать его конца значило бы прибавить эту
+                # четверть часа к каждой выкладке.
+                try:
+                    await post_due_to_channel(bot)
+                except Exception as exc:
+                    logger.error(f"Канал: очередь не разобрана ({exc})")
 
                 await asyncio.sleep(random.uniform(REQ_DELAY_MIN, REQ_DELAY_MAX))
 
@@ -1432,9 +1601,26 @@ async def cmd_avito(update, context):
         bands.append(f"{cat['emoji']} {cat['name']}: "
                      f"{low:,}–{high:,} ₽".replace(",", " "))
 
+    channel = get_channel_chat()
+    if channel:
+        with _connect() as conn:
+            waiting = conn.execute(
+                "SELECT COUNT(*) c FROM channel_queue WHERE posted_at IS NULL"
+            ).fetchone()["c"]
+            posted = conn.execute(
+                "SELECT COUNT(*) c FROM channel_queue WHERE posted_at IS NOT NULL"
+            ).fetchone()["c"]
+        channel_line = (f"📢 Канал: {channel}\n"
+                        f"Отставание: {CHANNEL_DELAY // 60} мин, "
+                        f"порог −{int((1 - CHANNEL_RATIO) * 100)}%\n"
+                        f"В очереди: {waiting}, выложено: {posted}\n\n")
+    else:
+        channel_line = "📢 Канал не настроен - находки только тебе\n\n"
+
     await update.message.reply_text(
         f"{'🟢 Монитор работает' if is_enabled() else '⚪️ Монитор выключен'}\n\n"
         f"Регион: {AVITO_REGION}\n\n"
+        + channel_line
         + "\n".join(bands) + "\n\n"
         f"Категорий: {len(CATEGORIES)}, запросов: {queries}\n"
         f"За круг: {per_cycle} слов, ~{cycle_min} мин\n"

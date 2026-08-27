@@ -792,6 +792,106 @@ async def browser_route():
 
 asyncio.run(browser_route())
 
+# --- канал с находками ---
+# Затея простая на словах и коварная на деле: канал не должен обгонять
+# владельца, иначе подписчики забирают лоты у того, кто их собрал.
+am.CHANNEL_RATIO = 0.7
+check("канал: без настройки канала нет", am.get_channel_chat() is None)
+
+# Порог канала мягче владельцева. Одна и та же карточка должна проходить
+# в канал и не проходить в личку - иначе вся затея с двумя мерками пустая.
+mid = {"title": "Перфоратор Bosch", "price": 2800, "item_id": "ch1",
+       "url": "https://www.avito.ru/krasnodar/ch1", "address": "Центр"}
+own, _ = am.rate_deal(mid, "перфоратор")
+ch, ch_note = am.rate_deal(mid, "перфоратор", ratio=am.CHANNEL_RATIO)
+check("канал: 70% от медианы - владельцу молчим", not own)
+check("канал: 70% от медианы - в канал идёт", ch, ch_note)
+check("канал: огонёк на такое не ставится", "🔥" not in ch_note, ch_note)
+
+hot = dict(mid, price=1800, item_id="ch2")
+own, own_note = am.rate_deal(hot, "перфоратор")
+_, ch_note = am.rate_deal(hot, "перфоратор", ratio=am.CHANNEL_RATIO)
+check("канал: вдвое дешевле - и владельцу, и в канал", own)
+check("канал: огонёк означает одно и то же в обоих местах",
+      "🔥" in own_note and "🔥" in ch_note, f"{own_note} / {ch_note}")
+
+plain = dict(mid, price=3900, item_id="ch3")
+ch, _ = am.rate_deal(plain, "перфоратор", ratio=am.CHANNEL_RATIO)
+check("канал: цена рынка не идёт даже в канал", not ch)
+
+# Очередь. Она в базе, а не в памяти: дома бот перезапускается после
+# каждого обрыва связи, и полчаса ожидания это переживают запросто.
+am.save_items("instrument", "перфоратор", [mid, hot, plain])
+am.queue_for_channel(mid, "instrument", "дешевле медианы", 4000)
+check("очередь: до срока карточка не выдаётся", am.due_for_channel() == [])
+
+am.queue_for_channel(hot, "instrument", "🔥 дешевле", 4000, delay=-1)
+due = am.due_for_channel()
+check("очередь: отстоявшая срок карточка выдаётся", len(due) == 1, len(due))
+check("очередь: выдаётся вместе с данными объявления",
+      due and due[0]["title"] == "Перфоратор Bosch" and due[0]["price"] == 1800, due)
+check("очередь: выдаётся с заготовленной пометкой",
+      due and due[0]["note"] == "🔥 дешевле", due)
+
+am.queue_for_channel(hot, "instrument", "другая пометка", 9999, delay=-1)
+again = am.due_for_channel()
+check("очередь: та же карточка второй раз не встаёт",
+      len(again) == 1 and again[0]["note"] == "🔥 дешевле", again)
+
+am.mark_posted(hot["item_id"])
+check("очередь: выложенная карточка больше не выдаётся", am.due_for_channel() == [])
+
+# После суток простоя в очереди накопится десяток находок. Вываливать их
+# залпом нельзя: Telegram ответит отказом по частоте, а читатель получит
+# стену сообщений.
+for i in range(9):
+    lot = dict(mid, item_id=f"heap{i}", url=f"https://www.avito.ru/krasnodar/heap{i}")
+    am.save_items("instrument", "перфоратор", [lot])
+    am.queue_for_channel(lot, "instrument", "дешевле медианы", 4000, delay=-1)
+check("очередь: за раз берётся горсть, а не весь завал",
+      len(am.due_for_channel()) == 5, len(am.due_for_channel()))
+
+# Выкладка. Бота подделываем: сеть здесь не нужна, как и везде.
+class FakeBot:
+    def __init__(self, fail=False):
+        self.sent = []
+        self.fail = fail
+
+    async def send_message(self, chat_id, text, **kwargs):
+        if self.fail:
+            raise RuntimeError("нет прав на публикацию")
+        self.sent.append((chat_id, text))
+
+am.CHANNEL_DELAY = 0
+bot = FakeBot()
+check("выкладка: без настроенного канала ничего не уходит",
+      asyncio.run(am.post_due_to_channel(bot)) == 0 and not bot.sent)
+
+am.set_setting("channel_chat", "@krd_nahodki")
+check("канал: публичное имя возвращается строкой", am.get_channel_chat() == "@krd_nahodki")
+am.set_setting("channel_chat", "-1001234567890")
+check("канал: номер закрытого канала возвращается числом",
+      am.get_channel_chat() == -1001234567890)
+
+bot = FakeBot()
+posted = asyncio.run(am.post_due_to_channel(bot))
+check("выкладка: горсть ушла в канал", posted == 5 and len(bot.sent) == 5, posted)
+check("выкладка: ушла именно в канал, а не владельцу",
+      all(c == -1001234567890 for c, _ in bot.sent), [c for c, _ in bot.sent])
+check("выкладка: в сообщении есть ссылка на объявление",
+      all("avito.ru" in t for _, t in bot.sent))
+check("выкладка: выложенное во второй раз не уходит",
+      asyncio.run(am.post_due_to_channel(FakeBot())) == 4)
+
+# Нет прав на публикацию - самая частая беда с каналами. Находка при этом
+# не должна пропасть: полежит и уйдёт следующей попыткой.
+before = len(am.due_for_channel())
+check("выкладка: отказ канала не съедает очередь",
+      asyncio.run(am.post_due_to_channel(FakeBot(fail=True))) == 0
+      and len(am.due_for_channel()) == before, before)
+
+am.set_setting("channel_chat", "")
+
 # --- очередь поисковых слов ---
 # Гнать все слова подряд - вернейший способ получить капчу, ею и кончилось
 # 06.08.2026. Проверяем, что горстями обходятся все слова и без пропусков.
