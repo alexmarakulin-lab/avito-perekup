@@ -149,6 +149,9 @@ async def ask(user_id: int, question: str) -> str:
                     answer = resp.json()["choices"][0]["message"]["content"]
 
                 history.append({"role": "assistant", "content": answer})
+                # Обрезаем и здесь, а не только после вопроса: иначе память
+                # диалога всё время держала на одно сообщение больше потолка.
+                del history[:-MAX_HISTORY]
                 logger.info(f"Консультант: ответ от {model}, рыночный блок: {bool(context)}")
                 return answer
 
