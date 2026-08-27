@@ -119,6 +119,17 @@ CHANNEL_DELAY = int(os.getenv("AVITO_CHANNEL_DELAY", "1800"))
 # же интересен любой стоящий лот: он не едет за маржой, он покупает себе.
 CHANNEL_RATIO = float(os.getenv("AVITO_CHANNEL_RATIO", "0.7"))
 
+# Дни недели для постов в канал: 0 - понедельник, 6 - воскресенье.
+# Пусто - пост выключен.
+#
+# Разнесены по разным дням не для красоты. Канал, в котором пусто шесть
+# дней и густо в седьмой, читатель отписывает: лента выглядит заброшенной
+# ровно тогда, когда он на неё смотрит. Два поста в разные дни держат его
+# живым даже в неделю без единой находки.
+CHANNEL_DIGEST_DAY = os.getenv("AVITO_CHANNEL_DIGEST_DAY", "6").strip()
+CHANNEL_PROOF_DAY = os.getenv("AVITO_CHANNEL_PROOF_DAY", "2").strip()
+CHANNEL_POST_HOUR = int(os.getenv("AVITO_CHANNEL_POST_HOUR", "19"))
+
 # Час отправки суточного отчёта (по времени сервера).
 DIGEST_HOUR = int(os.getenv("AVITO_DIGEST_HOUR", "21"))
 
@@ -1136,6 +1147,17 @@ def rate_deal(item: dict, query: str, category: str | None = None,
 
 
 # ========== ОТПРАВКА ==========
+def money(n) -> str:
+    """Число с пробелами по разрядам: 7500 -> «7 500».
+
+    Отдельной функцией, а не `.replace(",", " ")` по готовой строке, - и
+    это не придирка. Замена по всей строке съедает не только разряды, но
+    и обычные запятые: у названий с Авито («Перфоратор Bosch, отличное
+    состояние») она выгрызала запятую прямо из середины слова.
+    """
+    return f"{n:,}".replace(",", " ")
+
+
 def build_alert(item: dict, category: str, note: str,
                 market: int | None = None) -> str:
     """Собирает подробное уведомление о находке.
@@ -1146,7 +1168,6 @@ def build_alert(item: dict, category: str, note: str,
     открывать объявление ради того, что уже известно.
     """
     cat = CATEGORIES.get(category, {})
-    money = lambda n: f"{n:,}".replace(",", " ")
 
     lines = [f"{cat.get('emoji', '📦')} <b>{cat.get('name', category)}</b>",
              "", item["title"], ""]
@@ -1357,8 +1378,8 @@ def build_report(hours: int = 24) -> str:
             cheapest = rows[[r["price"] for r in rows].index(prices[0])]
             lines.append(
                 f"{cat['emoji']} <b>{cat['name']}</b>\n"
-                f"   новых: {len(prices)} | медиана: {int(statistics.median(prices)):,} ₽"
-                f" | мин: {prices[0]:,} ₽".replace(",", " ")
+                f"   новых: {len(prices)} | медиана: {money(int(statistics.median(prices)))} ₽"
+                f" | мин: {money(prices[0])} ₽"
             )
             lines.append(f"   дешевле всех: {cheapest['title'][:60]}")
 
@@ -1370,7 +1391,7 @@ def build_report(hours: int = 24) -> str:
     if sold:
         lines.append("\n<b>Ушло с рынка</b> (реальная цена продажи):")
         for row in sold:
-            lines.append(f"   • {row['title'][:50]} — {row['price']:,} ₽".replace(",", " "))
+            lines.append(f"   • {row['title'][:50]} — {money(row['price'])} ₽")
     else:
         lines.append("\n<i>Продаж за период не зафиксировано.</i>")
 
@@ -1378,6 +1399,172 @@ def build_report(hours: int = 24) -> str:
         lines.append("\n⚠️ Ноль новых карточек за сутки — похоже, парсер не видит выдачу. "
                      "Проверь /avito_test.")
     return "\n".join(lines)
+
+
+# ========== ПОСТЫ ДЛЯ КАНАЛА ==========
+# Отчёт `build_report` писан для владельца: там есть служебное «парсер не
+# видит выдачу» и сухие цифры по всем категориям разом. Читателю канала
+# нужно другое - короткий и понятный итог, поэтому посты свои.
+def build_channel_digest(days: int = 7) -> str:
+    """Недельный итог по рынку. Контент даже в тихую неделю."""
+    since = time.time() - days * 86400
+    with _connect() as conn:
+        watched = conn.execute(
+            "SELECT COUNT(*) c FROM items WHERE first_seen > ?", (since,)
+        ).fetchone()["c"]
+        published = conn.execute(
+            "SELECT COUNT(*) c FROM channel_queue WHERE posted_at > ?", (since,)
+        ).fetchone()["c"]
+
+        rows = []
+        for key, cat in CATEGORIES.items():
+            prices = [r["price"] for r in conn.execute(
+                "SELECT price FROM items WHERE category = ? AND first_seen > ? AND price > 0",
+                (key, since)).fetchall()]
+            if len(prices) < 5:
+                continue
+            rows.append((len(prices), cat, sorted(prices)))
+
+        # Лучшая находка недели - та, у которой разница с рынком вышла
+        # больше всех. Она и есть главное доказательство, что канал нужен.
+        best = conn.execute(
+            "SELECT i.title, i.price, q.market FROM channel_queue q "
+            "JOIN items i ON i.item_id = q.item_id "
+            "WHERE q.posted_at > ? AND q.market > 0 AND i.price > 0 "
+            "ORDER BY (CAST(i.price AS REAL) / q.market) LIMIT 1", (since,)
+        ).fetchone()
+
+    if not watched:
+        return ""
+
+    lines = [f"📊 <b>Неделя на рынке Краснодара</b>\n",
+             f"Просмотрено объявлений: <b>{money(watched)}</b>"]
+    if published:
+        lines.append(f"Попало в канал: <b>{published}</b> — те, что дешевле рынка "
+                     f"на {int((1 - CHANNEL_RATIO) * 100)}% и больше")
+    lines.append("")
+
+    # Только оживлённые категории, и не больше пяти: длинный список цифр
+    # читатель пролистывает целиком, вместе с тем, ради чего он написан.
+    for count, cat, prices in sorted(rows, reverse=True, key=lambda r: r[0])[:5]:
+        lines.append(
+            f"{cat['emoji']} <b>{cat['name']}</b> — новых {count}, "
+            f"медиана {money(int(statistics.median(prices)))} ₽, "
+            f"дешевле всех {money(prices[0])} ₽")
+
+    if best and best["market"]:
+        diff = 1 - best["price"] / best["market"]
+        lines.append(f"\n<b>Находка недели</b>\n"
+                     f"{best['title'][:60]} — {money(best['price'])} ₽ "
+                     f"при рынке {money(best['market'])} ₽ (−{int(diff * 100)}%)")
+
+    return "\n".join(lines)
+
+
+def build_sold_proof(days: int = 7, limit: int = 5) -> str:
+    """Что из выложенного уже ушло с Авито.
+
+    Это самое сильное, что канал может сказать о себе: не «у нас дёшево»,
+    а «смотрите быстро, вот это уже разобрали». Берутся только те лоты,
+    что прошли через канал - про чужие находки говорить нечестно.
+
+    Слово «продано» тут не годится: бот видит лишь то, что объявление
+    снято с публикации. Обычно это и значит продажу, но не всегда, и
+    обещать читателю больше, чем знаешь, - верный способ потерять доверие
+    ровно один раз и насовсем.
+    """
+    since = time.time() - days * 86400
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT i.title, i.price, q.market, i.sold_at, q.posted_at "
+            "FROM channel_queue q JOIN items i ON i.item_id = q.item_id "
+            "WHERE q.posted_at IS NOT NULL AND i.sold_at > ? "
+            "ORDER BY i.sold_at DESC LIMIT ?", (since, limit)
+        ).fetchall()
+
+    if not rows:
+        return ""
+
+    lines = ["🏃 <b>Разобрали за неделю</b>\n",
+             "Из того, что выкладывали здесь, уже снято с Авито:\n"]
+    for r in rows:
+        line = f"• {r['title'][:55]} — {money(r['price'])} ₽"
+        if r["market"]:
+            line += f" (рынок {money(r['market'])} ₽)"
+        hours = (r["sold_at"] - r["posted_at"]) / 3600 if r["posted_at"] else None
+        if hours is not None and hours >= 0:
+            line += f", ушло за {int(hours)} ч" if hours >= 1 else ", ушло за час"
+        lines.append(line)
+
+    lines.append("\nВыводы делайте сами: хорошее здесь живёт часами, "
+                 "а не днями.")
+    return "\n".join(lines)
+
+
+async def post_weekly(bot) -> str | None:
+    """Раз в неделю выкладывает в канал сводку и разбор проданного.
+
+    Возвращает имя выложенного поста или None. Отметка о выкладке лежит в
+    базе, а не в памяти: дома бот перезапускается по нескольку раз в день,
+    и памятью «уже постили» он бы не удержал - канал получал бы одну и ту
+    же сводку после каждого подъёма.
+    """
+    chat = get_channel_chat()
+    if not chat:
+        return None
+
+    now = datetime.now()
+    if now.hour < CHANNEL_POST_HOUR:
+        return None
+    today = now.date().isoformat()
+    weekday = str(now.weekday())
+
+    for name, day, builder in (("digest", CHANNEL_DIGEST_DAY, build_channel_digest),
+                               ("proof", CHANNEL_PROOF_DAY, build_sold_proof)):
+        if not day or weekday != day:
+            continue
+        if get_setting(f"channel_{name}_date") == today:
+            continue
+
+        text = builder()
+        # Пустой пост не выкладывается, но день всё равно отмечается
+        # закрытым: иначе бот весь вечер, каждый круг, заново ходил бы за
+        # тем же пустым результатом.
+        if text:
+            try:
+                await bot.send_message(chat_id=chat, text=text, parse_mode="HTML")
+            except Exception as exc:
+                logger.error(f"Канал: недельный пост «{name}» не ушёл ({exc})")
+                return None
+            logger.info(f"Канал: выложен недельный пост «{name}»")
+        set_setting(f"channel_{name}_date", today)
+        return name if text else None
+
+    return None
+
+
+async def cmd_channel_preview(update, context):
+    """Показывает владельцу недельные посты, не выкладывая их.
+
+    Смотреть на свой канал глазами читателя надо до публикации, а не после:
+    выложенный пост можно удалить, но те, кто уже прочитал, прочитали.
+    """
+    init_db()
+    digest = build_channel_digest()
+    proof = build_sold_proof()
+
+    if not digest and not proof:
+        await update.message.reply_text(
+            "Показывать пока нечего: за неделю не набралось ни статистики, "
+            "ни выложенных находок. Через несколько дней работы будет.")
+        return
+
+    await update.message.reply_text(
+        "Вот что уйдёт в канал на этой неделе. Здесь это видно только тебе.",
+        parse_mode="HTML")
+    for text in (digest, proof):
+        if text:
+            await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def check_sold():
@@ -1503,13 +1690,13 @@ async def self_test(query: str = "перфоратор", category: str | None = 
     # «видит ли бот выдачу», но не на вопрос «правда ли там эта цена», -
     # а второй для перекупа и есть главный.
     for item in good[:5]:
-        out.append(f"• {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+        out.append(f"• {item['title'][:55]} — {money(item['price'])} ₽")
         out.append(f"  {item['url']}")
     if dropped:
         out.append("")
         out.append("Отсеяно как не то:")
         for item in dropped[:5]:
-            out.append(f"  ✗ {item['title'][:55]} — {item['price']:,} ₽".replace(",", " "))
+            out.append(f"  ✗ {item['title'][:55]} — {money(item['price'])} ₽")
     return "\n".join(out)
 
 
@@ -1607,6 +1794,11 @@ async def monitor_loop(bot):
                 await asyncio.sleep(random.uniform(REQ_DELAY_MIN, REQ_DELAY_MAX))
 
             logger.info(f"Монитор Авито: круг закрыт, новых карточек {found_total}")
+
+            try:
+                await post_weekly(bot)
+            except Exception as exc:
+                logger.error(f"Канал: недельный пост не собрался ({exc})")
 
             now = datetime.now()
             if now.hour == DIGEST_HOUR and last_digest_day != now.date():

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Оффлайн-проверка логики монитора на синтетической выдаче Авито."""
 import asyncio
+import datetime
 import json
 import os
 import sys
 import tempfile
+import time
 from urllib.parse import quote
 
 os.environ["AVITO_DB"] = tempfile.mktemp(suffix=".db")
@@ -891,6 +893,97 @@ check("выкладка: отказ канала не съедает очере�
       and len(am.due_for_channel()) == before, before)
 
 am.set_setting("channel_chat", "")
+
+# --- деньги с пробелами ---
+# Замена «,» на пробел по всей готовой строке выгрызала запятую из середины
+# названия: у «Перфоратор Bosch, отличное состояние» она пропадала.
+check("деньги: разряды разделены пробелом", am.money(1234567) == "1 234 567", am.money(1234567))
+alert = am.build_alert(
+    {"title": "Перфоратор Bosch, отличное состояние, торг", "price": 3200,
+     "url": "https://www.avito.ru/krasnodar/z1", "address": "Центр, Фестивальный"},
+    "instrument", "🔥 дешевле", 7500)
+check("деньги: запятая в названии не съедена",
+      "Bosch, отличное состояние, торг" in alert, alert.split("\n")[2])
+check("деньги: запятая в районе не съедена", "Центр, Фестивальный" in alert)
+check("деньги: цена всё равно с пробелом", "3 200" in alert and "7 500" in alert)
+
+# --- недельные посты в канал ---
+# Канал, где пусто шесть дней и густо в седьмой, отписывают. Эти два поста
+# дают ленте жизнь даже в неделю без единой находки.
+# Постить нечего - значит молчим. Проверяется нулевым окном: за «последние
+# ноль дней» в базе не может быть ничего, сколько бы в ней ни лежало.
+check("недельный пост: когда нечего сказать - сводки нет",
+      am.build_channel_digest(days=0) == "", am.build_channel_digest(days=0)[:60])
+check("недельный пост: когда нечего сказать - разбора нет",
+      am.build_sold_proof(days=0) == "", am.build_sold_proof(days=0)[:60])
+
+week = [{"item_id": f"w{i}", "title": f"Перфоратор Bosch, как новый {i}",
+         "price": 3000 + i * 200, "url": f"https://www.avito.ru/krasnodar/w{i}",
+         "address": ""} for i in range(9)]
+am.save_items("instrument", "перфоратор", week)
+for i, (mkt, ago) in enumerate([(7500, 30), (6000, 9)]):
+    am.queue_for_channel(week[i], "instrument", "🔥 дешевле", mkt, delay=-1)
+    with am._connect() as c:
+        c.execute("UPDATE channel_queue SET posted_at = ? WHERE item_id = ?",
+                  (time.time() - ago * 3600, week[i]["item_id"]))
+with am._connect() as c:
+    c.execute("UPDATE items SET sold_at = ? WHERE item_id = 'w0'", (time.time() - 6 * 3600,))
+
+digest = am.build_channel_digest()
+check("сводка: считает просмотренное", "Просмотрено объявлений" in digest, digest[:60])
+check("сводка: показывает медиану по оживлённой категории",
+      "Инструмент и стройка" in digest and "медиана" in digest)
+check("сводка: запятые в названии находки целы",
+      "Bosch, как новый" in digest, digest[-160:])
+check("сводка: находкой недели названа самая выгодная",
+      "−60%" in digest, digest[-120:])
+
+proof = am.build_sold_proof()
+check("разбор: показывает снятое с публикации", "w" not in proof and "3 000" in proof, proof[:90])
+check("разбор: показывает, за сколько часов ушло", "ушло за" in proof, proof[:200])
+check("разбор: не обещает продажу, которой не видел",
+      "снято с Авито" in proof and "продано" not in proof.lower(), proof[:120])
+
+# Расписание. Отметка о выкладке - в базе: дома бот перезапускается по
+# нескольку раз в день, и памятью он бы её не удержал.
+class Poster:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent.append(text)
+
+
+am.set_setting("channel_chat", "@krd_nahodki")
+am.CHANNEL_POST_HOUR = 0                      # чтобы проверка не зависела от часа
+today = datetime.datetime.now()
+am.CHANNEL_DIGEST_DAY = str(today.weekday())
+am.CHANNEL_PROOF_DAY = str((today.weekday() + 1) % 7)
+am.set_setting("channel_digest_date", "")
+
+bot = Poster()
+check("расписание: в свой день сводка уходит",
+      asyncio.run(am.post_weekly(bot)) == "digest" and len(bot.sent) == 1, bot.sent)
+check("расписание: второй раз за день не повторяется",
+      asyncio.run(am.post_weekly(bot)) is None and len(bot.sent) == 1, len(bot.sent))
+
+am.CHANNEL_DIGEST_DAY = str((today.weekday() + 3) % 7)
+am.CHANNEL_PROOF_DAY = str((today.weekday() + 4) % 7)
+bot = Poster()
+check("расписание: не в свой день молчит",
+      asyncio.run(am.post_weekly(bot)) is None and not bot.sent)
+
+am.CHANNEL_POST_HOUR = 23
+am.CHANNEL_DIGEST_DAY = str(today.weekday())
+am.set_setting("channel_digest_date", "")
+check("расписание: раньше назначенного часа молчит",
+      asyncio.run(am.post_weekly(Poster())) is None)
+
+am.CHANNEL_POST_HOUR = 0
+am.set_setting("channel_chat", "")
+check("расписание: без канала недельных постов нет",
+      asyncio.run(am.post_weekly(Poster())) is None)
+am.CHANNEL_DIGEST_DAY, am.CHANNEL_PROOF_DAY = "6", "2"
 
 # --- кнопка «Проверить канал» ---
 # Забытое право на публикацию - самая частая беда с каналами, и узнать о

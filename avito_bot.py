@@ -82,6 +82,7 @@ BTN_ON = "🟢 Включить"
 BTN_OFF = "⚪️ Выключить"
 BTN_TEST = "🔍 Проверить Авито"
 BTN_CHANNEL = "📢 Проверить канал"
+BTN_PREVIEW = "👁 Посты недели"
 
 # Какие события забирать у Telegram.
 #
@@ -101,6 +102,7 @@ def keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(BTN_REPORT), KeyboardButton(BTN_STATUS)],
             [KeyboardButton(BTN_ON), KeyboardButton(BTN_OFF)],
             [KeyboardButton(BTN_TEST), KeyboardButton(BTN_CHANNEL)],
+            [KeyboardButton(BTN_PREVIEW)],
         ],
         resize_keyboard=True,
     )
@@ -194,6 +196,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await avito_monitor.cmd_avito_test(update, context)
     elif text == BTN_CHANNEL:
         await avito_monitor.cmd_channel_test(update, context)
+    elif text == BTN_PREVIEW:
+        await avito_monitor.cmd_channel_preview(update, context)
     elif text:
         await ask_expert(update, context, text)
 
@@ -404,6 +408,7 @@ def build_app():
     app.add_handler(CommandHandler("avito_report", protect(avito_monitor.cmd_avito_report)))
     app.add_handler(CommandHandler("avito_test", protect(avito_monitor.cmd_avito_test)))
     app.add_handler(CommandHandler("channel", protect(avito_monitor.cmd_channel_test)))
+    app.add_handler(CommandHandler("preview", protect(avito_monitor.cmd_channel_preview)))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_button))
     # Нажатия кнопок под сообщением - выбор категории для проверки Авито.
     # Отбор чужих здесь свой: у нажатия нет сообщения, на котором держится
