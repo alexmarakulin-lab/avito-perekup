@@ -81,6 +81,7 @@ BTN_REPORT = "📊 Отчёт за сутки"
 BTN_ON = "🟢 Включить"
 BTN_OFF = "⚪️ Выключить"
 BTN_TEST = "🔍 Проверить Авито"
+BTN_CHANNEL = "📢 Проверить канал"
 
 # Какие события забирать у Telegram.
 #
@@ -99,7 +100,7 @@ def keyboard() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(BTN_REPORT), KeyboardButton(BTN_STATUS)],
             [KeyboardButton(BTN_ON), KeyboardButton(BTN_OFF)],
-            [KeyboardButton(BTN_TEST)],
+            [KeyboardButton(BTN_TEST), KeyboardButton(BTN_CHANNEL)],
         ],
         resize_keyboard=True,
     )
@@ -163,10 +164,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + "{:,}–{:,} ₽".format(*avito_monitor.price_band(key)).replace(",", " ")
             for key, cat in avito_monitor.CATEGORIES.items()
         ) + "\n\n"
-        "Первые дни присылаю всё, что укладывается в бюджет — так копится "
-        "статистика цен. Дальше остаются только лоты дешевле медианы рынка.\n\n"
+        "Бужу только на лотах вдвое дешевле рынка — таких единицы, зато за "
+        "ними стоит ехать. Первые дни сравниваю с сегодняшней выдачей, "
+        "дальше — с накопленной медианой за три недели.\n\n"
         "Начни с «🔍 Проверить Авито» — убедимся, что выдача читается.\n"
-        "Потом «🟢 Включить»." + expert_line,
+        "Потом «🟢 Включить».\n"
+        "Если завёл канал — «📢 Проверить канал», он скажет, пускает ли "
+        "туда Telegram." + expert_line,
         parse_mode="HTML",
         reply_markup=keyboard(),
     )
@@ -188,6 +192,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == BTN_TEST:
         context.args = []
         await avito_monitor.cmd_avito_test(update, context)
+    elif text == BTN_CHANNEL:
+        await avito_monitor.cmd_channel_test(update, context)
     elif text:
         await ask_expert(update, context, text)
 
@@ -397,6 +403,7 @@ def build_app():
     app.add_handler(CommandHandler("avito_off", protect(avito_monitor.cmd_avito_off)))
     app.add_handler(CommandHandler("avito_report", protect(avito_monitor.cmd_avito_report)))
     app.add_handler(CommandHandler("avito_test", protect(avito_monitor.cmd_avito_test)))
+    app.add_handler(CommandHandler("channel", protect(avito_monitor.cmd_channel_test)))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_button))
     # Нажатия кнопок под сообщением - выбор категории для проверки Авито.
     # Отбор чужих здесь свой: у нажатия нет сообщения, на котором держится

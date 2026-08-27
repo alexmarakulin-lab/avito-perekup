@@ -150,7 +150,7 @@ if PTB:
     commands = sorted(sorted(h.commands)[0] for h in handlers if hasattr(h, "commands"))
     check("сборка: команды на месте",
           commands == ["avito", "avito_off", "avito_on", "avito_report", "avito_test",
-                       "help", "myid", "reset", "start"], commands)
+                       "channel", "help", "myid", "reset", "start"], commands)
     check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 2, len(handlers))
     check("сборка: post_init назначен", callable(app.post_init))
 

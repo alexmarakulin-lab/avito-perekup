@@ -892,6 +892,70 @@ check("выкладка: отказ канала не съедает очере�
 
 am.set_setting("channel_chat", "")
 
+# --- кнопка «Проверить канал» ---
+# Забытое право на публикацию - самая частая беда с каналами, и узнать о
+# ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.
+# Кнопка должна называть причину по-человечески, а не пересказывать
+# английский текст Telegram.
+class Reply:
+    def __init__(self):
+        self.texts = []
+
+    async def reply_text(self, text, **kwargs):
+        self.texts.append(text)
+
+
+class FakeUpdate:
+    def __init__(self):
+        self.message = Reply()
+
+
+class Ctx:
+    def __init__(self, bot):
+        self.bot = bot
+
+
+class Refuser:
+    def __init__(self, error):
+        self.error = error
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kwargs):
+        if self.error:
+            raise RuntimeError(self.error)
+        self.sent.append((chat_id, text))
+        return object()
+
+
+am.set_setting("channel_chat", "")
+u = FakeUpdate()
+asyncio.run(am.cmd_channel_test(u, Ctx(Refuser(None))))
+check("кнопка канала: без настройки объясняет, что вписать",
+      "не настроен" in u.message.texts[0] and "Настроить бота" in u.message.texts[0], u.message.texts[0][:60])
+
+am.set_setting("channel_chat", "@krd_nahodki")
+u = FakeUpdate()
+bot = Refuser(None)
+asyncio.run(am.cmd_channel_test(u, Ctx(bot)))
+check("кнопка канала: при успехе шлёт проверку в сам канал",
+      bot.sent and bot.sent[0][0] == "@krd_nahodki", bot.sent)
+check("кнопка канала: при успехе показывает отставание и порог",
+      "✅" in u.message.texts[0] and "мин после тебя" in u.message.texts[0], u.message.texts[0][:80])
+
+cases = [
+    ("Forbidden: bot is not a member of the channel chat", "Добавить администратора"),
+    ("Bad Request: chat not found", "-1001234567890"),
+    ("Bad Request: not enough rights to send text messages to the chat",
+     "Публикация сообщений"),
+]
+for error, expected in cases:
+    u = FakeUpdate()
+    asyncio.run(am.cmd_channel_test(u, Ctx(Refuser(error))))
+    check(f"кнопка канала: «{error[:28]}...» объяснено по-человечески",
+          "❌" in u.message.texts[0] and expected in u.message.texts[0], u.message.texts[0][:120])
+
+am.set_setting("channel_chat", "")
+
 # --- очередь поисковых слов ---
 # Гнать все слова подряд - вернейший способ получить капчу, ею и кончилось
 # 06.08.2026. Проверяем, что горстями обходятся все слова и без пропусков.

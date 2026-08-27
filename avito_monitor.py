@@ -1279,6 +1279,63 @@ async def post_due_to_channel(bot) -> int:
     return posted
 
 
+async def cmd_channel_test(update, context):
+    """Проверяет канал прямо сейчас: настроен ли и пускает ли бота.
+
+    Без этой проверки о том, что бота забыли сделать администратором,
+    узнать было неоткуда: находка молча ложилась в очередь, через полчаса
+    не выкладывалась, а отказ уходил в лог. Обнаруживалось это через сутки
+    по пустому каналу.
+    """
+    init_db()
+    chat = get_channel_chat()
+    if not chat:
+        await update.message.reply_text(
+            "📢 Канал не настроен.\n\n"
+            "Запусти «Настроить бота» - он спросит канал четвёртым вопросом. "
+            "Вписывается либо @имя публичного канала, либо номер закрытого "
+            "(начинается на -100).")
+        return
+
+    try:
+        sent = await context.bot.send_message(
+            chat_id=chat,
+            text="🔧 Проверка связи. Бот подключён к каналу, находки пойдут сюда.\n\n"
+                 "Это сообщение можно удалить.")
+    except Exception as exc:
+        # Текст отказа у Telegram английский и невнятный. Разбираем его на
+        # человеческий: причин на деле всего три, и все чинятся по-разному.
+        reason = str(exc).lower()
+        if "not enough rights" in reason or "need administrator" in reason:
+            hint = ("Бот в канале есть, но публиковать не может.\n\n"
+                    "Канал → Администраторы → найти бота → включить "
+                    "«Публикация сообщений».")
+        elif "chat not found" in reason:
+            hint = ("Такого канала Telegram не знает.\n\n"
+                    "Если канал публичный - проверь имя, оно пишется с собачкой. "
+                    "Если закрытый - нужен номер вида -1001234567890, а не имя.")
+        elif "kicked" in reason or "not a member" in reason:
+            hint = ("Бота нет в канале.\n\n"
+                    "Канал → Администраторы → Добавить администратора → "
+                    "найти бота по имени.")
+        else:
+            hint = f"Telegram ответил: {exc}"
+        await update.message.reply_text(f"❌ Канал не принял сообщение.\n\n{hint}")
+        return
+
+    with _connect() as conn:
+        waiting = conn.execute(
+            "SELECT COUNT(*) c FROM channel_queue WHERE posted_at IS NULL"
+        ).fetchone()["c"]
+
+    await update.message.reply_text(
+        f"✅ Канал на связи: {chat}\n\n"
+        f"Проверочное сообщение выложено, можешь его удалить.\n\n"
+        f"Отставание: {CHANNEL_DELAY // 60} мин после тебя\n"
+        f"Порог канала: дешевле рынка на {int((1 - CHANNEL_RATIO) * 100)}%\n"
+        f"Сейчас в очереди: {waiting}")
+
+
 def build_report(hours: int = 24) -> str:
     """Суточная сводка: сколько появилось, почём и что реально продалось."""
     since = time.time() - hours * 3600
