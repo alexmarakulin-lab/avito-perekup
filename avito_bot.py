@@ -423,17 +423,52 @@ def build_app():
                                          pattern=f"^{avito_monitor.TEST_PREFIX}"))
     app.add_error_handler(error_handler)
 
+    # Фоновые задачи держим за руку сами.
+    #
+    # `application.create_task` до старта приложения предупреждает, что не
+    # станет их дожидаться, и предупреждает по делу: при выходе задачи
+    # никто не отменял. А в мониторе на отмену завязано закрытие браузера -
+    # без неё Chromium оставался висеть чужим процессом до перезагрузки
+    # компьютера. Дома, где бот перезапускается после каждого обрыва связи,
+    # такие процессы копились бы за день десятками.
+    background: list = []
+
+    def _watch_task(task):
+        """Тихо умершая фоновая задача - худший вид поломки.
+
+        Бот продолжает отвечать на кнопки, опрос жив, сторож доволен, а
+        находок нет и никто об этом не знает. Поэтому смерть задачи
+        попадает в лог явно.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"Фоновая задача оборвалась: {exc!r}", exc_info=exc)
+
     async def _post_init(application):
         avito_monitor.init_db()
-        application.create_task(avito_monitor.monitor_loop(application.bot))
-        logger.info("Монитор Авито: фоновая задача запущена")
-        application.create_task(watchdog(application))
-        logger.info(
-            f"Сторож опроса: смотрит раз в {WATCHDOG_INTERVAL} с, "
-            f"перезапуск после {WATCHDOG_SILENCE} с молчания"
-        )
+        for coro, note in (
+            (avito_monitor.monitor_loop(application.bot), "Монитор Авито: фоновая задача запущена"),
+            (watchdog(application),
+             f"Сторож опроса: смотрит раз в {WATCHDOG_INTERVAL} с, "
+             f"перезапуск после {WATCHDOG_SILENCE} с молчания"),
+        ):
+            task = asyncio.create_task(coro)
+            task.add_done_callback(_watch_task)
+            background.append(task)
+            logger.info(note)
+
+    async def _post_shutdown(application):
+        for task in background:
+            task.cancel()
+        # Отмена доходит до задачи не сразу: монитор на ней закрывает
+        # браузер, и уйти, не дождавшись, - значит снова оставить Chromium.
+        await asyncio.gather(*background, return_exceptions=True)
+        logger.info("Фоновые задачи остановлены, браузер закрыт")
 
     app.post_init = _post_init
+    app.post_shutdown = _post_shutdown
     return app
 
 

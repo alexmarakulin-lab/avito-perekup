@@ -1145,6 +1145,40 @@ check("расписание: без канала недельных постов
       asyncio.run(am.post_weekly(Poster())) is None)
 am.CHANNEL_DIGEST_DAY, am.CHANNEL_PROOF_DAY = "6", "2"
 
+# --- спящий режим: ответ powercfg ---
+# Проверка написана после того, как первая её версия вывалила на экран
+# Traceback при каждом запуске бота: `text=True` заставляет Python читать
+# ответ в кодировке системы, а на русской Windows он в другой. Падает при
+# этом читающий поток subprocess, так что никакой try этого не ловит.
+powercfg_eng = """Power Scheme GUID: 381b4222 (Balanced)
+  Subgroup GUID: 238c9fa8 (Sleep)
+    Power Setting GUID: 29f6c1db (Sleep after)
+      Minimum Possible Setting: 0x00000000
+      Maximum Possible Setting: 0xffffffff
+      Possible Settings increment: 0x00000001
+      Possible Settings units: Seconds
+    Current AC Power Setting Index: 0x00000708
+    Current DC Power Setting Index: 0x00000384"""
+powercfg_rus = (powercfg_eng
+                .replace("Current AC Power Setting Index",
+                         "Индекс текущего параметра питания от сети переменного тока")
+                .replace("Current DC Power Setting Index",
+                         "Индекс текущего параметра питания от батареи"))
+
+check("сон: время до сна разобрано", am.parse_powercfg(powercfg_eng) == 1800,
+      am.parse_powercfg(powercfg_eng))
+check("сон: русский ответ Windows понят так же",
+      am.parse_powercfg(powercfg_rus) == 1800, am.parse_powercfg(powercfg_rus))
+check("сон: отключённый сон - это ноль",
+      am.parse_powercfg(powercfg_eng.replace("0x00000708", "0x00000000")) == 0)
+check("сон: от батареи не путается с сетью",
+      am.parse_powercfg(powercfg_eng) != 900)
+check("сон: мусор вместо ответа не выдаётся за настройку",
+      am.parse_powercfg("powercfg: неверные параметры") is None)
+check("сон: пустой ответ не роняет проверку", am.parse_powercfg("") is None)
+check("сон: не на Windows проверка честно отказывается",
+      am.sleep_setting()[0] is None if os.name != "nt" else True)
+
 # --- склонение по числу ---
 forms = ("слово", "слова", "слов")
 check("склонение: 1 слово", am.plural(1, *forms) == "слово")

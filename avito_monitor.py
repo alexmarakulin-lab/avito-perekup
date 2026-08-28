@@ -1564,6 +1564,25 @@ async def post_weekly(bot) -> str | None:
     return None
 
 
+def parse_powercfg(text: str) -> int | None:
+    """Достаёт из ответа powercfg время до сна от сети, в секундах.
+
+    Разбор нарочно не опирается на английские слова: на русской Windows
+    powercfg отвечает по-русски («Индекс текущего параметра питания от
+    сети переменного тока»), и проверка, написанная под английский текст,
+    молча решала бы, что ответ непонятен.
+
+    Опора на порядок чисел надёжнее. Ответ устроен всегда одинаково:
+    сначала границы и шаг возможных значений, потом два индекса - от сети
+    и от батареи. Значит нужное число - предпоследнее шестнадцатеричное
+    в ответе, каким бы языком оно ни было подписано.
+    """
+    numbers = re.findall(r"0x([0-9a-fA-F]+)", text)
+    if len(numbers) < 2:
+        return None
+    return int(numbers[-2], 16)
+
+
 def sleep_setting() -> tuple:
     """Спит ли компьютер сам по себе. Только Windows, только от сети.
 
@@ -1575,14 +1594,26 @@ def sleep_setting() -> tuple:
     if os.name != "nt":
         return None, "проверяется только на Windows"
     try:
+        # Вывод забирается байтами и раскодируется вручную. С `text=True`
+        # Python берёт кодировку системы (на русской Windows - cp1251) и
+        # спотыкается о первый же символ псевдографики - причём падает не
+        # здесь, а в своём читающем потоке, так что никакой try этого не
+        # ловит: на экран вылетает Traceback, а запуск идёт дальше.
         out = subprocess.run(["powercfg", "/query", "SCHEME_CURRENT", "SUB_SLEEP",
-                              "STANDBYIDLE"], capture_output=True, text=True, timeout=15)
-        # Нужна строка «Current AC Power Setting Index: 0x00000000».
-        # Ноль означает «никогда», всё остальное - минуты до сна.
-        m = re.search(r"AC Power Setting Index:\s*0x([0-9a-fA-F]+)", out.stdout)
-        if not m:
+                              "STANDBYIDLE"], capture_output=True, timeout=15)
+        raw = out.stdout or b""
+        for encoding in ("cp866", "cp1251", "utf-8"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = raw.decode("utf-8", errors="ignore")
+
+        seconds = parse_powercfg(text)
+        if seconds is None:
             return None, "не разобрал ответ powercfg"
-        seconds = int(m.group(1), 16)
         if seconds == 0:
             return True, "спящий режим от сети отключён"
         return False, f"уснёт через {seconds // 60} мин без дела"

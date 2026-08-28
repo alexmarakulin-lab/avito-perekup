@@ -195,25 +195,26 @@ if PTB:
         watched = f"не добрался до соединения опроса: {exc}"
     check("сборка: сторож приставлен именно к опросу", watched is True, watched)
 
-    async def post_init_runs():
-        started = {"v": False}
+    async def background_tasks_live_and_die():
+        """Фоновые задачи должны стартовать и, главное, честно умирать.
 
-        def fake_create_task(self, coro, **kw):
-            started["v"] = True
-            coro.close()   # корутину надо закрыть, иначе Python ругнётся
+        На отмене монитора висит закрытие браузера. Уйти, не дождавшись
+        отмены, - значит оставить Chromium висеть чужим процессом до
+        перезагрузки; дома, где бот поднимается после каждого обрыва связи,
+        такие процессы копились бы за день десятками.
+        """
+        before = len(asyncio.all_tasks())
+        await app.post_init(app)
+        await asyncio.sleep(0)
+        running = [t for t in asyncio.all_tasks() if not t.done()]
+        check("сборка: фоновые задачи запущены", len(running) >= before + 2,
+              f"{len(running)} против {before}")
 
-        # Подменяем на самом классе, а не на объекте: с версии 22 у него
-        # запрещено дописывать свойства на ходу.
-        from telegram.ext import Application
-        original = Application.create_task
-        Application.create_task = fake_create_task
-        try:
-            await app.post_init(app)
-        finally:
-            Application.create_task = original
-        check("сборка: фоновый монитор стартует", started["v"])
+        await app.post_shutdown(app)
+        check("сборка: при выходе фоновые задачи отменены, а не брошены",
+              len(asyncio.all_tasks()) <= before + 1, len(asyncio.all_tasks()))
 
-    asyncio.run(post_init_runs())
+    asyncio.run(background_tasks_live_and_die())
 else:
     print("  ~~  python-telegram-bot не установлен, проверки сборки пропущены")
 
