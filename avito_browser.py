@@ -53,9 +53,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # Прятать ли окно. По умолчанию нет - см. пункт 1 в заголовке файла.
 HEADLESS = os.getenv("AVITO_BROWSER_HEADLESS", "0").strip() in ("1", "true", "yes")
 
-# Какой браузер брать. chrome - установленный на компьютере, пустая строка -
-# встроенный в Playwright (на этой машине он не запускается, см. пункт 2).
-CHANNEL = os.getenv("AVITO_BROWSER_CHANNEL", "chrome").strip() or None
+# Какой браузер брать. chrome - установленный на компьютере.
+#
+# Пустое значение здесь означает «как обычно», а не «встроенный Chromium»:
+# пустые строки в .env стоят у половины настроек и везде значат «не трогал».
+# Прежде пустая строка молча уводила на встроенный Chromium, который на
+# домашней машине не запускается вовсе. Встроенный выбирается отдельным
+# словом, чтобы это был выбор, а не следствие пустой строки.
+_channel = os.getenv("AVITO_BROWSER_CHANNEL", "chrome").strip() or "chrome"
+CHANNEL = None if _channel.lower() in ("chromium", "встроенный", "none") else _channel
 
 # Прямой путь к файлу браузера. Перебивает CHANNEL.
 #

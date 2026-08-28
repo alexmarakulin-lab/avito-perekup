@@ -1292,6 +1292,11 @@ async def good_fetch(url, source="avito"):
 
 
 am.fetch_html = good_fetch
+# Весь файл гоняется без браузера (см. начало), а диагностика на это
+# справедливо ругается. Здесь проверяется случай «всё цело», поэтому
+# браузер на время объявляется включённым.
+real_use_browser = am.USE_BROWSER
+am.USE_BROWSER = True
 am.set_setting("enabled", "1")
 am.set_setting("owner_chat", "777")
 am.set_setting("channel_chat", "")
@@ -1299,6 +1304,18 @@ u = FakeUpdate()
 asyncio.run(am.cmd_selfcheck(u, Ctx(Silent())))
 report = u.message.texts[-1]
 check("проверка всего: живой Авито посчитан", "Авито читается" in report, report[:250])
+check("проверка всего: видно, чем ходим на Авито",
+      "браузером" in report or "по http" in report, report[:400])
+
+# Уход на http - поломка, снаружи неотличимая от «Авито закрылось», а
+# починка совсем другая. Она должна быть названа своим именем.
+am.USE_BROWSER = False
+u5 = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u5, Ctx(Silent())))
+check("проверка всего: уход на http назван поломкой",
+      "Ходим по http" in u5.message.texts[-1] and "AVITO_FETCH=browser" in u5.message.texts[-1],
+      u5.message.texts[-1][-300:])
+am.USE_BROWSER = real_use_browser
 check("проверка всего: когда всё цело - сказано прямо",
       "Всё в порядке" in report and "Что чинить" not in report, report[-200:])
 check("проверка всего: показано время полного обхода",

@@ -493,7 +493,10 @@ USE_CFFI = CFFI_AVAILABLE and os.getenv("AVITO_HTTP", "cffi").lower() != "httpx"
 # Авито пропускает; замеры и разбор почему - в avito_browser.py. Прежний
 # способ никуда не делся: AVITO_FETCH=http вернёт запросы по http, если
 # защита однажды подобреет или страницы понадобятся быстрее и дешевле.
-USE_BROWSER = os.getenv("AVITO_FETCH", "browser").strip().lower() == "browser"
+# `or` вместо умолчания в getenv: умолчание берётся, только когда переменной
+# нет вовсе, а пустая строка его отменяет. Пустой AVITO_FETCH выключал
+# браузер и ронял бота в капчу через три секунды после запуска.
+USE_BROWSER = (os.getenv("AVITO_FETCH") or "browser").strip().lower() == "browser"
 
 # Разговор с Авито ведётся одной и той же сессией: в ней живут метки Qrator
 # и уже установленные соединения. Новая сессия на каждый запрос - это опять
@@ -1673,6 +1676,22 @@ async def cmd_selfcheck(update, context):
     except Exception as exc:
         lines.append(f"❌ Авито не читается: {str(exc)[:70]}")
         trouble.append("Пока это не починится, находок не будет.")
+
+    # 3б. Чем именно ходим. Строка выглядит лишней ровно до того дня,
+    # когда браузер молча выключится: снаружи это неотличимо от «Авито
+    # закрылось», а починка совсем другая. 28.08.2026 так и было -
+    # пустая строка в настройках увела бота на http, и капча прилетала
+    # через три секунды после запуска.
+    if USE_BROWSER:
+        which = avito_browser.EXECUTABLE or avito_browser.CHANNEL or "встроенный Chromium"
+        lines.append(f"ℹ️ Ходим браузером ({which})")
+        if not avito_browser.EXECUTABLE and avito_browser.CHANNEL is None:
+            trouble.append("Браузер выбран встроенный, а он на этой машине не "
+                           "запускается. В .env: AVITO_BROWSER_CHANNEL=chrome")
+    else:
+        lines.append("❌ Ходим по http, а не браузером")
+        trouble.append("Так Авито не пускает - будет капча. "
+                       "В .env: AVITO_FETCH=browser (или убрать эту строку).")
 
     # 4. База: копится ли что-нибудь.
     with _connect() as conn:

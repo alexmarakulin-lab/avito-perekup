@@ -236,6 +236,55 @@ check("без токена: подсказка про BotFather", "BotFather" in
 check("без токена: подсказка по-русски, а не крокозябрами",
       "Не задан" in stderr, stderr[:120])
 
+# --- пустое значение в .env означает «не задано» ---
+# Поломка 28.08.2026, стоившая владельцу капчи на первом же запросе.
+# В примере половина настроек стоит пустыми, и все они значат «оставь как
+# есть». Но код читает их как os.getenv("AVITO_FETCH", "browser"), а
+# умолчание берётся только когда переменной нет вовсе: пустая строка его
+# отменяет. Пока этих строк не было в .env, всё работало; как только
+# обновление их дописало - браузер выключился, и бот пошёл по http прямо
+# в капчу.
+import env_file
+
+env_path = tempfile.mktemp(suffix=".env")
+with open(env_path, "w", encoding="utf-8") as f:
+    f.write("AVITO_FETCH=\n"
+            "AVITO_BROWSER_CHANNEL=\n"
+            "AVITO_CHANNEL_CHAT=\n"
+            "PROVERKA_ZNACHENIE=есть\n"
+            "PROVERKA_PUSTO=\n")
+for name in ("PROVERKA_ZNACHENIE", "PROVERKA_PUSTO", "AVITO_FETCH_PROBA"):
+    os.environ.pop(name, None)
+env_file.load(env_path)
+
+check("настройки: значение из .env прочитано",
+      os.environ.get("PROVERKA_ZNACHENIE") == "есть", os.environ.get("PROVERKA_ZNACHENIE"))
+check("настройки: пустая строка не выставляется в окружение",
+      "PROVERKA_PUSTO" not in os.environ, os.environ.get("PROVERKA_PUSTO"))
+check("настройки: после пустой строки умолчание всё ещё работает",
+      os.getenv("PROVERKA_PUSTO", "умолчание") == "умолчание")
+
+# И то же самое на настоящих настройках, из-за которых всё и случилось.
+import importlib
+import avito_browser
+importlib.reload(avito_browser)
+check("настройки: пустой AVITO_FETCH не выключает браузер",
+      (os.getenv("AVITO_FETCH") or "browser") == "browser", os.getenv("AVITO_FETCH"))
+check("настройки: пустой AVITO_BROWSER_CHANNEL оставляет настоящий Chrome",
+      avito_browser.CHANNEL == "chrome", avito_browser.CHANNEL)
+
+os.environ["AVITO_BROWSER_CHANNEL"] = "chromium"
+importlib.reload(avito_browser)
+check("настройки: встроенный Chromium выбирается словом, а не пустотой",
+      avito_browser.CHANNEL is None, avito_browser.CHANNEL)
+os.environ["AVITO_BROWSER_CHANNEL"] = ""
+importlib.reload(avito_browser)
+
+try:
+    os.unlink(env_path)
+except OSError:
+    pass
+
 # --- перенос настроек в .env при обновлении ---
 # Настройки, появившиеся в новых версиях, сами в .env не приходят: файл
 # создаётся один раз копией примера и дальше живёт своей жизнью. Самое
