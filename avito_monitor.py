@@ -13,6 +13,7 @@ import random
 import re
 import sqlite3
 import statistics
+import subprocess
 import time
 from datetime import datetime, timedelta
 from http.cookiejar import CookieJar
@@ -129,6 +130,10 @@ CHANNEL_RATIO = float(os.getenv("AVITO_CHANNEL_RATIO", "0.7"))
 CHANNEL_DIGEST_DAY = os.getenv("AVITO_CHANNEL_DIGEST_DAY", "6").strip()
 CHANNEL_PROOF_DAY = os.getenv("AVITO_CHANNEL_PROOF_DAY", "2").strip()
 CHANNEL_POST_HOUR = int(os.getenv("AVITO_CHANNEL_POST_HOUR", "19"))
+
+# Пауза между сообщениями в канал, секунд. Telegram считает частоту по
+# каналу отдельно и на залпе отвечает отказом.
+CHANNEL_SEND_PAUSE = 1
 
 # Час отправки суточного отчёта (по времени сервера).
 DIGEST_HOUR = int(os.getenv("AVITO_DIGEST_HOUR", "21"))
@@ -1158,6 +1163,23 @@ def money(n) -> str:
     return f"{n:,}".replace(",", " ")
 
 
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение по числу: 1 слово, 2 слова, 5 слов, 51 слово.
+
+    Правило смотрит на две последние цифры, а не на одну: у чисел от 11 до
+    14 окончание не такое, как у 21 и 31, хотя последняя цифра та же.
+    """
+    n = abs(n)
+    if n % 100 in range(11, 15):
+        return many
+    last = n % 10
+    if last == 1:
+        return one
+    if last in (2, 3, 4):
+        return few
+    return many
+
+
 def build_alert(item: dict, category: str, note: str,
                 market: int | None = None) -> str:
     """Собирает подробное уведомление о находке.
@@ -1291,9 +1313,8 @@ async def post_due_to_channel(bot) -> int:
             break
         mark_posted(row["item_id"])
         posted += 1
-        # Telegram считает частоту по каналу отдельно и на залпе отвечает
-        # отказом. Секунда между сообщениями дешевле разбора этих отказов.
-        await asyncio.sleep(1)
+        # Секунда между сообщениями дешевле разбора отказов по частоте.
+        await asyncio.sleep(CHANNEL_SEND_PAUSE)
 
     if posted:
         logger.info(f"Канал: выложено {posted}")
@@ -1541,6 +1562,179 @@ async def post_weekly(bot) -> str | None:
         return name if text else None
 
     return None
+
+
+def sleep_setting() -> tuple:
+    """Спит ли компьютер сам по себе. Только Windows, только от сети.
+
+    Проверка выглядит неуместной в мониторе Авито ровно до той ночи, когда
+    компьютер уснул в 20:39, а бот вышел утром и не вернулся. Автозапуск от
+    этого не спасает: пока машина спит, никто ничего не ищет, и по логу это
+    выглядит как «просто перестал».
+    """
+    if os.name != "nt":
+        return None, "проверяется только на Windows"
+    try:
+        out = subprocess.run(["powercfg", "/query", "SCHEME_CURRENT", "SUB_SLEEP",
+                              "STANDBYIDLE"], capture_output=True, text=True, timeout=15)
+        # Нужна строка «Current AC Power Setting Index: 0x00000000».
+        # Ноль означает «никогда», всё остальное - минуты до сна.
+        m = re.search(r"AC Power Setting Index:\s*0x([0-9a-fA-F]+)", out.stdout)
+        if not m:
+            return None, "не разобрал ответ powercfg"
+        seconds = int(m.group(1), 16)
+        if seconds == 0:
+            return True, "спящий режим от сети отключён"
+        return False, f"уснёт через {seconds // 60} мин без дела"
+    except Exception as exc:
+        return None, f"не спросил у Windows ({exc})"
+
+
+async def sleep_setting_async() -> tuple:
+    """То же, но не задерживая опрос Telegram.
+
+    `subprocess.run` останавливает весь цикл событий, пока ждёт ответа. У
+    powercfg он приходит быстро, но «быстро» и «никогда» отличаются ровно
+    в тот раз, когда что-то пойдёт не так, а сторож связи считает молчание
+    опроса поводом перезапустить бота.
+    """
+    return await asyncio.to_thread(sleep_setting)
+
+
+async def cmd_selfcheck(update, context):
+    """Проверяет разом всё, от чего зависит работа. Одна кнопка вместо пяти.
+
+    Смысл не в том, чтобы собрать проверки в кучу, а в том, чтобы владелец
+    видел картину целиком. Порознь каждая отвечает «у меня всё хорошо», и
+    поэтому молчащий бот при живых проверках - обычное дело: сломано то,
+    чего никто по отдельности не спрашивал.
+    """
+    init_db()
+    await update.message.reply_text("⏳ Проверяю всё по очереди, это займёт полминуты...")
+
+    lines = ["<b>Проверка всего</b>\n"]
+    trouble = []
+
+    # 1. Монитор включён?
+    if is_enabled():
+        lines.append("✅ Монитор включён")
+    else:
+        lines.append("⚪️ Монитор выключен")
+        trouble.append("Нажми «🟢 Включить» - без этого бот не ищет.")
+
+    # 2. Чат владельца известен?
+    if get_owner_chat():
+        lines.append("✅ Есть куда слать находки")
+    else:
+        lines.append("❌ Не задан чат владельца")
+        trouble.append("Напиши боту /start - он запомнит, куда слать.")
+
+    # 3. Авито читается? Настоящий запрос, а не догадка.
+    try:
+        html = await fetch_html(build_search_url("перфоратор", "instrument"), "avito")
+        found = len(parse_search(html, "avito"))
+        if found:
+            lines.append(f"✅ Авито читается — {found} карточек")
+        else:
+            lines.append("❌ Авито отдал страницу, но карточек ноль")
+            trouble.append("Похоже на капчу или смену вёрстки. "
+                           "Нажми «🔍 Проверить Авито» — там подробности.")
+    except Exception as exc:
+        lines.append(f"❌ Авито не читается: {str(exc)[:70]}")
+        trouble.append("Пока это не починится, находок не будет.")
+
+    # 4. База: копится ли что-нибудь.
+    with _connect() as conn:
+        day = conn.execute("SELECT COUNT(*) c FROM items WHERE first_seen > ?",
+                           (time.time() - 86400,)).fetchone()["c"]
+        total = conn.execute("SELECT COUNT(*) c FROM items").fetchone()["c"]
+    if day:
+        lines.append(f"✅ За сутки собрано {day} объявлений (всего {money(total)})")
+    elif total:
+        lines.append(f"⚠️ За сутки ноль новых, в базе {money(total)}")
+        trouble.append("Сутки без единой карточки — либо бот стоял, либо Авито не пускает.")
+    else:
+        lines.append("⚪️ База пуста — бот ещё не отработал ни одного круга")
+
+    # 5. Канал.
+    chat = get_channel_chat()
+    if not chat:
+        lines.append("⚪️ Канал не настроен")
+    else:
+        try:
+            # Спрашиваем права напрямую, ничего не отправляя. Через
+            # «печатает...» проверять нельзя: это действие Telegram у
+            # каналов не принимает и у полноправного бота тоже - вышла бы
+            # ложная тревога на исправном канале.
+            me = await context.bot.get_chat(chat_id=chat)
+            member = await context.bot.get_chat_member(
+                chat_id=chat, user_id=context.bot.id)
+            can_post = getattr(member, "can_post_messages", None)
+            if member.status == "creator" or can_post:
+                right = "на связи"
+            elif member.status != "administrator":
+                right = "бот не администратор"
+            else:
+                right = "нет права публиковать"
+            with _connect() as conn:
+                waiting = conn.execute(
+                    "SELECT COUNT(*) c FROM channel_queue WHERE posted_at IS NULL"
+                ).fetchone()["c"]
+                posted = conn.execute(
+                    "SELECT COUNT(*) c FROM channel_queue WHERE posted_at IS NOT NULL"
+                ).fetchone()["c"]
+            title = getattr(me, "title", None) or str(chat)
+            if right == "на связи":
+                lines.append(f"✅ Канал «{title}» на связи — "
+                             f"в очереди {waiting}, выложено {posted}")
+            else:
+                lines.append(f"❌ Канал «{title}»: {right}")
+                trouble.append("Канал → Администраторы → бот → включить "
+                               "«Публикация сообщений».")
+        except Exception as exc:
+            lines.append(f"❌ Канал {chat} не отвечает: {str(exc)[:60]}")
+            trouble.append("Нажми «📢 Проверить канал» — он скажет, что именно чинить.")
+
+    # 6. Консультант. Ввозится здесь, а не наверху файла: consultant сам
+    # опирается на этот модуль, и ссылка наверху замкнула бы круг.
+    try:
+        import resale_expert
+        if resale_expert.available():
+            lines.append("✅ Консультант включён")
+        else:
+            lines.append("⚪️ Консультант выключен — нет ключа Groq")
+    except Exception as exc:
+        lines.append(f"⚠️ Консультант не отвечает на вопрос о себе ({exc})")
+
+    # 7. Сон компьютера: та самая беда, от которой бот однажды умер на сутки.
+    ok, note = await sleep_setting_async()
+    if ok is True:
+        lines.append(f"✅ Сон: {note}")
+    elif ok is False:
+        lines.append(f"❌ Сон: {note}")
+        trouble.append("Параметры → Система → Питание → «При питании от сети "
+                       "переводить в спящий режим» → Никогда. "
+                       "Пока компьютер спит, бот не ищет.")
+    else:
+        lines.append(f"⚪️ Сон: {note}")
+
+    # 8. Скорость обхода - не поломка, но её стоит видеть.
+    per_cycle = len(take_queries())
+    queries = len(all_queries())
+    cycle_min = max(1, int((per_cycle * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60))
+    sweep = cycle_min * -(-queries // per_cycle)
+    word = plural(queries, "слово", "слова", "слов")
+    lines.append(f"ℹ️ Полный обход {queries} {word} — около "
+                 f"{sweep // 60} ч {sweep % 60} мин")
+
+    if trouble:
+        lines.append("\n<b>Что чинить</b>")
+        for i, t in enumerate(trouble, 1):
+            lines.append(f"{i}. {t}")
+    else:
+        lines.append("\n<b>Всё в порядке.</b> Ничего делать не нужно.")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_channel_preview(update, context):

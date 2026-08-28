@@ -83,6 +83,7 @@ BTN_OFF = "⚪️ Выключить"
 BTN_TEST = "🔍 Проверить Авито"
 BTN_CHANNEL = "📢 Проверить канал"
 BTN_PREVIEW = "👁 Посты недели"
+BTN_SELFCHECK = "🩺 Проверить всё"
 
 # Какие события забирать у Telegram.
 #
@@ -99,10 +100,13 @@ ALLOWED_UPDATES = ["message", "callback_query"]
 def keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_REPORT), KeyboardButton(BTN_STATUS)],
+            # Порядок не случайный: сверху то, что нажимают, когда что-то
+            # пошло не так, - а именно тогда за клавиатуру и берутся.
+            # Внизу канальные кнопки: они нужны раз в неделю.
+            [KeyboardButton(BTN_SELFCHECK), KeyboardButton(BTN_STATUS)],
             [KeyboardButton(BTN_ON), KeyboardButton(BTN_OFF)],
-            [KeyboardButton(BTN_TEST), KeyboardButton(BTN_CHANNEL)],
-            [KeyboardButton(BTN_PREVIEW)],
+            [KeyboardButton(BTN_REPORT), KeyboardButton(BTN_TEST)],
+            [KeyboardButton(BTN_CHANNEL), KeyboardButton(BTN_PREVIEW)],
         ],
         resize_keyboard=True,
     )
@@ -169,10 +173,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Бужу только на лотах вдвое дешевле рынка — таких единицы, зато за "
         "ними стоит ехать. Первые дни сравниваю с сегодняшней выдачей, "
         "дальше — с накопленной медианой за три недели.\n\n"
-        "Начни с «🔍 Проверить Авито» — убедимся, что выдача читается.\n"
-        "Потом «🟢 Включить».\n"
-        "Если завёл канал — «📢 Проверить канал», он скажет, пускает ли "
-        "туда Telegram." + expert_line,
+        "Начни с «🩺 Проверить всё» — она за полминуты скажет, что живо, "
+        "а что чинить: Авито, канал, консультант, спящий режим.\n"
+        "Потом «🟢 Включить»." + expert_line,
         parse_mode="HTML",
         reply_markup=keyboard(),
     )
@@ -198,6 +201,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await avito_monitor.cmd_channel_test(update, context)
     elif text == BTN_PREVIEW:
         await avito_monitor.cmd_channel_preview(update, context)
+    elif text == BTN_SELFCHECK:
+        await avito_monitor.cmd_selfcheck(update, context)
     elif text:
         await ask_expert(update, context, text)
 
@@ -409,6 +414,7 @@ def build_app():
     app.add_handler(CommandHandler("avito_test", protect(avito_monitor.cmd_avito_test)))
     app.add_handler(CommandHandler("channel", protect(avito_monitor.cmd_channel_test)))
     app.add_handler(CommandHandler("preview", protect(avito_monitor.cmd_channel_preview)))
+    app.add_handler(CommandHandler("selfcheck", protect(avito_monitor.cmd_selfcheck)))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_button))
     # Нажатия кнопок под сообщением - выбор категории для проверки Авито.
     # Отбор чужих здесь свой: у нажатия нет сообщения, на котором держится

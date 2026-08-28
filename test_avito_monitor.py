@@ -894,6 +894,166 @@ check("выкладка: отказ канала не съедает очере�
 
 am.set_setting("channel_chat", "")
 
+# --- сквозной прогон круга монитора ---
+# Всё вокруг цикла проверено, а сам цикл - главный кусок бота - до сих пор
+# не запускался ни разу. Именно там сходятся вместе запрос, разбор, база,
+# две мерки, личка и канал; ошибка в проводке между ними не видна ни в
+# одной проверке по отдельности.
+def make_page(lots):
+    """Страница выдачи в нынешнем виде Авито."""
+    body = {"state": {"catalog": {"items": [
+        {"id": lot["id"], "title": lot["title"],
+         "priceDetailed": {"value": lot["price"]},
+         "urlPath": f"/krasnodar/instrumenty/lot_{lot['id']}",
+         "geo": {"formattedAddress": "Фестивальный"}} for lot in lots]}}}
+    return "window.__preloadedState__ = " + json.dumps(json.dumps(body, ensure_ascii=False)) + ";"
+
+
+class LoopBot:
+    def __init__(self):
+        self.messages = []          # (chat_id, text)
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.messages.append((chat_id, text))
+
+
+async def run_one_cycle(pages, chat_owner=777, channel=None, ratio=None):
+    """Гоняет ровно один круг монитора и возвращает бота с тем, что он отправил.
+
+    Цикл вечный, поэтому останавливаем его отменой на паузе между кругами:
+    так проверяется именно то, что цикл делает за круг, а не выдуманная
+    его перепевка.
+    """
+    am.set_setting("enabled", "1")
+    am.set_setting("owner_chat", str(chat_owner))
+    am.set_setting("channel_chat", channel or "")
+    am.CHANNEL_DELAY = -1                       # в канал сразу, без ожидания
+    am.CHANNEL_SEND_PAUSE = 0                   # и без секундной паузы между постами
+    if ratio is not None:
+        am.CHANNEL_RATIO = ratio
+
+    bot = LoopBot()
+    served = []
+
+    async def fake_fetch(url, source="avito"):
+        served.append(url)
+        return pages[(len(served) - 1) % len(pages)]
+
+    real_fetch, real_pause, real_min, real_max = (
+        am.fetch_html, am.CYCLE_PAUSE, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX)
+    am.fetch_html = fake_fetch
+    am.CYCLE_PAUSE, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = 3600, 0, 0
+    try:
+        task = asyncio.create_task(am.monitor_loop(bot))
+        # Даём кругу отработать и уснуть на CYCLE_PAUSE, затем снимаем.
+        for _ in range(400):
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.2)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    finally:
+        am.fetch_html = real_fetch
+        am.CYCLE_PAUSE, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = real_pause, real_min, real_max
+        am.set_setting("enabled", "0")
+        am.set_setting("channel_chat", "")
+        am.CHANNEL_DELAY = 1800
+        am.CHANNEL_SEND_PAUSE = 1
+    return bot, served
+
+
+# Рынок: девять перфораторов около 4000 - чтобы медиана была настоящей.
+am.QUERIES_PER_CYCLE = 1
+am._query_cursor = 0
+am.save_items("instrument", "перфоратор", [
+    {"item_id": f"loop_bg{i}", "title": f"Перфоратор рабочий {i}", "price": 4000,
+     "url": f"https://www.avito.ru/krasnodar/bg{i}", "address": ""} for i in range(12)])
+
+first = am.all_queries()[0]                     # с него цикл и начнёт
+cat_key, query = first
+bulk = [{"item_id": f"m{i}", "title": f"{query} ходовой {i}", "price": 4000,
+         "url": f"https://www.avito.ru/krasnodar/m{i}", "address": ""} for i in range(12)]
+am.save_items(cat_key, am.stats_key(am.source_of(cat_key), query), bulk)
+
+hot = {"id": 90001, "title": f"{query} Bosch, срочно", "price": 1600}    # 40% рынка
+mid = {"id": 90002, "title": f"{query} Makita", "price": 2800}           # 70% рынка
+plain = {"id": 90003, "title": f"{query} обычный", "price": 3900}        # рынок
+page = make_page([hot, mid, plain])
+
+bot, served = asyncio.run(run_one_cycle([page]))
+owner_texts = [t for c, t in bot.messages if c == 777]
+check("круг: запрос к площадке ушёл", len(served) == 1, served)
+check("круг: владельцу ушла ровно одна находка", len(owner_texts) == 1, owner_texts)
+check("круг: владельцу ушла именно горячая",
+      owner_texts and "1 600" in owner_texts[0] and "🔥" in owner_texts[0],
+      owner_texts[0][:120] if owner_texts else None)
+def in_db(item_id):
+    with am._connect() as c:
+        return c.execute("SELECT 1 FROM items WHERE item_id = ?",
+                         (str(item_id),)).fetchone() is not None
+
+
+check("круг: в базу легли все карточки, а не только разосланные",
+      in_db(90001) and in_db(90002) and in_db(90003))
+
+# Тот же круг, но с каналом. Карточки нужны новые: те, что уже в базе,
+# новыми не считаются и в рассылку не идут - иначе канал получал бы один и
+# тот же лот каждый круг, пока объявление висит.
+am._query_cursor = 0
+page2 = make_page([
+    {"id": 90011, "title": f"{query} Bosch, срочно", "price": 1600},
+    {"id": 90012, "title": f"{query} Makita", "price": 2800},
+    {"id": 90013, "title": f"{query} обычный", "price": 3900},
+])
+bot, served = asyncio.run(run_one_cycle([page2], channel="@krd_nahodki", ratio=0.7))
+owner_texts = [t for c, t in bot.messages if c == 777]
+channel_texts = [t for c, t in bot.messages if c == "@krd_nahodki"]
+check("круг с каналом: владельцу ушла только горячая",
+      len(owner_texts) == 1 and "1 600" in owner_texts[0], owner_texts)
+check("круг с каналом: в канал ушли обе находки", len(channel_texts) == 2, channel_texts)
+check("круг с каналом: мягкая находка попала только в канал",
+      any("2 800" in t for t in channel_texts)
+      and not any("2 800" in t for t in owner_texts), channel_texts)
+check("круг с каналом: рыночная цена не ушла никуда",
+      not any("3 900" in t for _, t in bot.messages), bot.messages)
+
+# Блокировка Авито посреди круга: цикл не должен ни падать, ни молчать.
+am._query_cursor = 0
+am.set_setting("enabled", "1")
+am.set_setting("owner_chat", "777")
+blocked_bot = LoopBot()
+
+
+async def blocking_fetch(url, source="avito"):
+    raise am.AvitoBlocked("капча Qrator")
+
+
+real_fetch, real_pause = am.fetch_html, am.CYCLE_PAUSE
+am.fetch_html, am.CYCLE_PAUSE = blocking_fetch, 3600
+
+
+async def run_blocked():
+    task = asyncio.create_task(am.monitor_loop(blocked_bot))
+    for _ in range(200):
+        await asyncio.sleep(0)
+    await asyncio.sleep(0.2)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+asyncio.run(run_blocked())
+am.fetch_html, am.CYCLE_PAUSE = real_fetch, real_pause
+am.set_setting("enabled", "0")
+check("круг: про блокировку владельцу сказано, а не проглочено",
+      any("ограничил доступ" in t for _, t in blocked_bot.messages), blocked_bot.messages)
+
+am.QUERIES_PER_CYCLE = 4
+
 # --- деньги с пробелами ---
 # Замена «,» на пробел по всей готовой строке выгрызала запятую из середины
 # названия: у «Перфоратор Bosch, отличное состояние» она пропадала.
@@ -985,11 +1145,18 @@ check("расписание: без канала недельных постов
       asyncio.run(am.post_weekly(Poster())) is None)
 am.CHANNEL_DIGEST_DAY, am.CHANNEL_PROOF_DAY = "6", "2"
 
-# --- кнопка «Проверить канал» ---
-# Забытое право на публикацию - самая частая беда с каналами, и узнать о
-# ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.
-# Кнопка должна называть причину по-человечески, а не пересказывать
-# английский текст Telegram.
+# --- склонение по числу ---
+forms = ("слово", "слова", "слов")
+check("склонение: 1 слово", am.plural(1, *forms) == "слово")
+check("склонение: 2 слова", am.plural(2, *forms) == "слова")
+check("склонение: 5 слов", am.plural(5, *forms) == "слов")
+check("склонение: 11 слов - исключение", am.plural(11, *forms) == "слов")
+check("склонение: 14 слов - тоже исключение", am.plural(14, *forms) == "слов")
+check("склонение: 21 слово, а не «21 слов»", am.plural(21, *forms) == "слово")
+check("склонение: 51 слово", am.plural(51, *forms) == "слово")
+check("склонение: 112 слов", am.plural(112, *forms) == "слов")
+
+# Заглушки Telegram: ими пользуются и «Проверить всё», и «Проверить канал».
 class Reply:
     def __init__(self):
         self.texts = []
@@ -1008,6 +1175,104 @@ class Ctx:
         self.bot = bot
 
 
+# --- кнопка «Проверить всё» ---
+# Порознь каждая проверка отвечает «у меня всё хорошо», и молчащий бот при
+# живых проверках - обычное дело: сломано то, чего никто не спрашивал.
+class Member:
+    def __init__(self, status, can_post=None):
+        self.status = status
+        if can_post is not None:
+            self.can_post_messages = can_post
+
+
+class ChannelBot:
+    """Телеграм со стороны канала: кто мы в нём и что нам позволено.
+
+    Права спрашиваются, а не проверяются отправкой: действие «печатает...»
+    Telegram у каналов не принимает и у полноправного бота тоже, так что
+    проверка через него врала бы на исправном канале.
+    """
+    id = 42
+
+    def __init__(self, member=None, title="Находки Краснодара", missing=False):
+        self.member, self.title, self.missing = member, title, missing
+
+    async def get_chat(self, chat_id, **kwargs):
+        if self.missing:
+            raise RuntimeError("Bad Request: chat not found")
+        return type("Chat", (), {"title": self.title})()
+
+    async def get_chat_member(self, chat_id, user_id, **kwargs):
+        return self.member
+
+
+Silent = lambda: ChannelBot(Member("administrator", True))
+
+
+real_fetch = am.fetch_html
+
+
+async def broken_fetch(url, source="avito"):
+    raise am.AvitoBlocked("капча Qrator")
+
+
+am.fetch_html = broken_fetch
+am.set_setting("enabled", "0")
+am.set_setting("owner_chat", "")
+am.set_setting("channel_chat", "@krd_nahodki")
+u = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u, Ctx(ChannelBot(Member("administrator", False)))))
+report = u.message.texts[-1]
+check("проверка всего: выключенный монитор замечен", "Монитор выключен" in report, report[:200])
+check("проверка всего: капча названа прямо", "Авито не читается" in report, report[:250])
+check("проверка всего: отобранное право публикации замечено",
+      "нет права публиковать" in report, report[:400])
+check("проверка всего: канал назван своим именем",
+      "Находки Краснодара" in report, report[:400])
+
+# Бот вовсе не в канале - беда другая, и совет должен быть другой.
+u2 = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u2, Ctx(ChannelBot(Member("left")))))
+check("проверка всего: «бота нет в канале» отличается от «нет прав»",
+      "бот не администратор" in u2.message.texts[-1], u2.message.texts[-1][:400])
+
+# Канала нет совсем - тут ошибка Telegram, её и показываем.
+u3 = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u3, Ctx(ChannelBot(missing=True))))
+check("проверка всего: несуществующий канал не выдаётся за исправный",
+      "chat not found" in u3.message.texts[-1], u3.message.texts[-1][:400])
+check("проверка всего: собран список, что чинить", "Что чинить" in report, report[-300:])
+check("проверка всего: одна беда - один совет",
+      report.count("\n1. ") == 1 and "4." in report, report[-300:])
+
+# Всё в порядке: список бед должен исчезнуть совсем, а не остаться пустым
+# заголовком - иначе владелец каждый раз ищет в нём подвох.
+async def good_fetch(url, source="avito"):
+    return html_json
+
+
+am.fetch_html = good_fetch
+am.set_setting("enabled", "1")
+am.set_setting("owner_chat", "777")
+am.set_setting("channel_chat", "")
+u = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u, Ctx(Silent())))
+report = u.message.texts[-1]
+check("проверка всего: живой Авито посчитан", "Авито читается" in report, report[:250])
+check("проверка всего: когда всё цело - сказано прямо",
+      "Всё в порядке" in report and "Что чинить" not in report, report[-200:])
+check("проверка всего: показано время полного обхода",
+      "Полный обход" in report and "слово" in report, report[-260:])
+
+am.fetch_html = real_fetch
+am.set_setting("enabled", "0")
+am.set_setting("channel_chat", "")
+
+# --- кнопка «Проверить канал» ---
+# Забытое право на публикацию - самая частая беда с каналами, и узнать о
+# ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.
+# Кнопка должна называть причину по-человечески, а не пересказывать
+# английский текст Telegram.
 class Refuser:
     def __init__(self, error):
         self.error = error

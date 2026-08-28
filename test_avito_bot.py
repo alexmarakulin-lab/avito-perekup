@@ -150,7 +150,8 @@ if PTB:
     commands = sorted(sorted(h.commands)[0] for h in handlers if hasattr(h, "commands"))
     check("сборка: команды на месте",
           commands == ["avito", "avito_off", "avito_on", "avito_report", "avito_test",
-                       "channel", "help", "myid", "preview", "reset", "start"], commands)
+                       "channel", "help", "myid", "preview", "reset", "selfcheck",
+                       "start"], commands)
     check("сборка: обработчик кнопок добавлен", len(handlers) == len(commands) + 2, len(handlers))
     check("сборка: post_init назначен", callable(app.post_init))
 
@@ -225,6 +226,55 @@ proc = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.absp
                       capture_output=True, text=True, env=env, timeout=60)
 check("без токена: выход с ошибкой", proc.returncode == 1, proc.returncode)
 check("без токена: подсказка про BotFather", "BotFather" in proc.stderr, proc.stderr[:120])
+
+# --- перенос настроек в .env при обновлении ---
+# Настройки, появившиеся в новых версиях, сами в .env не приходят: файл
+# создаётся один раз копией примера и дальше живёт своей жизнью. Самое
+# опасное здесь - переписать чужое значение, поэтому проверки в основном
+# про то, чего трогать нельзя.
+import env_merge
+
+old_env = ("AVITO_BOT_TOKEN=123:SECRET\n"
+           "AVITO_OWNER_ID=555\n"
+           "AVITO_QUERIES_PER_CYCLE=3\n"
+           "AVITO_CYCLE_PAUSE=900\n"
+           "AVITO_REQ_DELAY_MIN=60\n")
+sample = ("# токен от BotFather\n"
+          "AVITO_BOT_TOKEN=\n"
+          "AVITO_QUERIES_PER_CYCLE=5\n"
+          "AVITO_CYCLE_PAUSE=600\n"
+          "\n"
+          "# Куда выкладывать находки.\n"
+          "# Пусто - канала нет.\n"
+          "AVITO_CHANNEL_CHAT=\n"
+          "AVITO_CHANNEL_DELAY=1800\n")
+
+merged, added, raised = env_merge.merge(old_env, sample)
+vals = env_merge.parse(merged)
+
+check("настройки: токен не тронут", vals["AVITO_BOT_TOKEN"] == "123:SECRET", vals)
+check("настройки: своё значение не переписано", vals["AVITO_REQ_DELAY_MIN"] == "60", vals)
+check("настройки: нетронутое умолчание поднято",
+      vals["AVITO_QUERIES_PER_CYCLE"] == "5" and vals["AVITO_CYCLE_PAUSE"] == "600", vals)
+check("настройки: про поднятое сказано вслух", len(raised) == 2, raised)
+check("настройки: новые добавлены",
+      vals["AVITO_CHANNEL_CHAT"] == "" and vals["AVITO_CHANNEL_DELAY"] == "1800", vals)
+check("настройки: новые пришли с пояснением",
+      "Пусто - канала нет." in merged, merged[-200:])
+check("настройки: имена добавленного перечислены",
+      set(added) == {"AVITO_CHANNEL_CHAT", "AVITO_CHANNEL_DELAY"}, added)
+
+# Осознанно выставленное значение, случайно совпавшее с новым умолчанием,
+# трогать тем более нельзя - а заодно и второй прогон не должен ничего менять.
+again, added2, raised2 = env_merge.merge(merged, sample)
+check("настройки: второй прогон ничего не меняет",
+      again == merged and not added2 and not raised2, (added2, raised2))
+
+# Владелец нарочно замедлил обход - обновление обязано это уважать.
+custom = "AVITO_QUERIES_PER_CYCLE=2\nAVITO_CYCLE_PAUSE=1800\n"
+kept, _, raised3 = env_merge.merge(custom, sample)
+check("настройки: осознанно выбранное не поднимается",
+      env_merge.parse(kept)["AVITO_QUERIES_PER_CYCLE"] == "2" and not raised3, kept)
 
 print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"ПРОВАЛЕНО: {fails}"))
 try:
