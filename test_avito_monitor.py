@@ -1243,13 +1243,19 @@ class ChannelBot:
 Silent = lambda: ChannelBot(Member("administrator", True))
 
 
-real_fetch = am.fetch_html
+real_fetch, real_sleep_check = am.fetch_html, am.sleep_setting
 
 
 async def broken_fetch(url, source="avito"):
     raise am.AvitoBlocked("капча Qrator")
 
 
+# Сон подменяем нарочно. Настоящая проверка спрашивает у Windows, как
+# настроен компьютер, - и на машине владельца, где сон включён,
+# «всё в порядке» никогда бы не совпало. Проверка, зависящая от настроек
+# той машины, где её запустили, не проверка: она то зелёная, то красная
+# без единой правки в коде.
+am.sleep_setting = lambda: (True, "спящий режим от сети отключён")
 am.fetch_html = broken_fetch
 am.set_setting("enabled", "0")
 am.set_setting("owner_chat", "")
@@ -1298,7 +1304,18 @@ check("проверка всего: когда всё цело - сказано 
 check("проверка всего: показано время полного обхода",
       "Полный обход" in report and "слово" in report, report[-260:])
 
-am.fetch_html = real_fetch
+# Отдельно - что включённый сон замечен и попал в список бед. Это та беда,
+# что однажды стоила суток работы, и молчать о ней нельзя.
+am.sleep_setting = lambda: (False, "уснёт через 30 мин без дела")
+u4 = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(u4, Ctx(Silent())))
+check("проверка всего: включённый сон замечен",
+      "уснёт через 30 мин" in u4.message.texts[-1], u4.message.texts[-1][:400])
+check("проверка всего: про сон сказано, что чинить",
+      "спящий режим" in u4.message.texts[-1] and "Что чинить" in u4.message.texts[-1],
+      u4.message.texts[-1][-300:])
+
+am.fetch_html, am.sleep_setting = real_fetch, real_sleep_check
 am.set_setting("enabled", "0")
 am.set_setting("channel_chat", "")
 

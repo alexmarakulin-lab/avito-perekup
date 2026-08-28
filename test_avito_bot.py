@@ -222,11 +222,19 @@ else:
 env = dict(os.environ)
 env.pop("AVITO_BOT_TOKEN", None)
 env["AVITO_BOT_TOKEN"] = ""
+# Вывод забирается байтами, а не с `text=True`. С ним Python читает ответ в
+# кодировке системы: на русской Windows это cp1251, и один символ вне её
+# роняет читающий поток subprocess - там, где его не ловит никакой try. На
+# этом уже обожглись с powercfg, второй раз наступать незачем.
+env["PYTHONIOENCODING"] = "utf-8"
 proc = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                     "avito_bot.py")],
-                      capture_output=True, text=True, env=env, timeout=60)
+                      capture_output=True, env=env, timeout=60)
+stderr = (proc.stderr or b"").decode("utf-8", errors="replace")
 check("без токена: выход с ошибкой", proc.returncode == 1, proc.returncode)
-check("без токена: подсказка про BotFather", "BotFather" in proc.stderr, proc.stderr[:120])
+check("без токена: подсказка про BotFather", "BotFather" in stderr, stderr[:120])
+check("без токена: подсказка по-русски, а не крокозябрами",
+      "Не задан" in stderr, stderr[:120])
 
 # --- перенос настроек в .env при обновлении ---
 # Настройки, появившиеся в новых версиях, сами в .env не приходят: файл
