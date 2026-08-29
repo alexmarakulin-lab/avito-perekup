@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -894,6 +895,41 @@ check("выкладка: отказ канала не съедает очере�
 
 am.set_setting("channel_chat", "")
 
+# --- земля под дом ---
+# Категория стоит особняком: это не перекуп, а покупка для себя, и правила
+# у неё другие - свой радиус, своё сито и запрет на канал.
+check("земля: радиус уходит в адрес поиска",
+      "radius=100" in am.build_search_url("участок ижс", "land"),
+      am.build_search_url("участок ижс", "land"))
+check("земля: у инструмента радиуса нет - за перфоратором никто не поедет",
+      "radius" not in am.build_search_url("перфоратор", "instrument"))
+check("земля: вилка цен своя",
+      am.price_band("land") == (150000, 600000), am.price_band("land"))
+
+check("земля: участок проходит", not am.is_junk("Участок 8 сот. ИЖС", "land"))
+check("земля: строители «под ключ» отсеяны",
+      am.is_junk("Строительство домов под ключ, проект бесплатно", "land"))
+check("земля: готовый дом отсеян", am.is_junk("Дом 90 м2 с участком 6 сот", "land"))
+check("земля: пай и доля отсеяны", am.is_junk("Продам пай земельный", "land"))
+check("земля: своё сито не мешает другим категориям",
+      not am.is_junk("Дом на колёсах для инструмента", "instrument"))
+
+check("земля: сотки из заголовка", am.parse_area("Участок 8 сот. ИЖС") == 8)
+check("земля: сотки через запятую", am.parse_area("Участок 12,5 соток") == 12.5)
+check("земля: гектар это сто соток", am.parse_area("Участок 1 га ЛПХ") == 100)
+check("земля: без площади в заголовке - честное «не знаю»",
+      am.parse_area("Участок ИЖС Динская") is None)
+
+land = {"item_id": "z1", "title": "Участок 8 сот. ИЖС, Динская", "price": 480000,
+        "url": "https://www.avito.ru/dinskaya/uchastok_z1", "address": "Динская"}
+alert = am.build_alert(land, "land", "🔥 дешевле", 760000)
+check("земля: в уведомлении есть цена за сотку", "60 000 ₽</b> за сотку" in alert, alert)
+check("земля: у инструмента лишней строки про сотки нет",
+      "за сотку" not in am.build_alert(
+          {"title": "Перфоратор 8 сот назад куплен", "price": 3000,
+           "url": "https://www.avito.ru/krasnodar/p", "address": ""},
+          "instrument", "", 4000))
+
 # --- сквозной прогон круга монитора ---
 # Всё вокруг цикла проверено, а сам цикл - главный кусок бота - до сих пор
 # не запускался ни разу. Именно там сходятся вместе запрос, разбор, база,
@@ -1018,6 +1054,44 @@ check("круг с каналом: мягкая находка попала то
       and not any("2 800" in t for t in owner_texts), channel_texts)
 check("круг с каналом: рыночная цена не ушла никуда",
       not any("3 900" in t for _, t in bot.messages), bot.messages)
+
+# Земля не должна попадать в канал ни при каких порогах. Проверка идёт
+# через весь круг, а не через rate_deal: запрет живёт в проводке цикла, и
+# сломать его можно, не тронув ни одной отдельной функции.
+am.QUERIES_PER_CYCLE = 1
+land_key, land_query = "land", am.CATEGORIES["land"]["queries"][0]
+am._query_cursor = [c for c, _ in am.all_queries()].index(land_key)
+am.save_items(land_key, am.stats_key("avito", land_query), [
+    {"item_id": f"lbg{i}", "title": f"{land_query} {10 + i} сот", "price": 500000,
+     "url": f"https://www.avito.ru/dinskaya/lbg{i}", "address": "Динская"}
+    for i in range(12)])
+
+land_page = make_page([
+    {"id": 95001, "title": f"{land_query} 8 сот, Динская", "price": 200000},
+    {"id": 95002, "title": f"{land_query} 10 сот, Северская", "price": 340000},
+])
+bot, served = asyncio.run(run_one_cycle([land_page], channel="@krd_nahodki", ratio=0.7))
+owner_texts = [t for c, t in bot.messages if c == 777]
+channel_texts = [t for c, t in bot.messages if c == "@krd_nahodki"]
+check("земля: находка ушла владельцу", len(owner_texts) >= 1, owner_texts)
+check("земля: в канал не ушло ничего", channel_texts == [], channel_texts)
+with am._connect() as c:
+    queued = c.execute("SELECT COUNT(*) n FROM channel_queue WHERE item_id IN "
+                       "('95001','95002')").fetchone()["n"]
+check("земля: в очередь канала даже не встала", queued == 0, queued)
+check("земля: владельцу показана цена за сотку",
+      any("за сотку" in t for t in owner_texts), owner_texts[:1])
+
+# А инструмент из того же круга в канал идти обязан - запрет именной, а не
+# «в канал вообще ничего не уходит».
+am._query_cursor = 0
+tool_page = make_page([{"id": 95010, "title": f"{query} Makita", "price": 2800}])
+bot, _ = asyncio.run(run_one_cycle([tool_page], channel="@krd_nahodki", ratio=0.7))
+check("земля: запрет не задел инструмент - он в канал идёт",
+      [t for c, t in bot.messages if c == "@krd_nahodki"], bot.messages)
+
+am.QUERIES_PER_CYCLE = 1
+am._query_cursor = 0
 
 # Блокировка Авито посреди круга: цикл не должен ни падать, ни молчать.
 am._query_cursor = 0
@@ -1318,8 +1392,12 @@ check("проверка всего: уход на http назван поломк
 am.USE_BROWSER = real_use_browser
 check("проверка всего: когда всё цело - сказано прямо",
       "Всё в порядке" in report and "Что чинить" not in report, report[-200:])
+# Число слов растёт с каждой новой категорией, поэтому проверка смотрит на
+# устройство строки, а не на конкретную цифру - иначе она краснела бы при
+# каждом добавлении поискового слова, ничего при этом не находя.
 check("проверка всего: показано время полного обхода",
-      "Полный обход" in report and "слово" in report, report[-260:])
+      re.search(r"Полный обход \d+ слов\w* — около \d+ ч \d+ мин", report) is not None,
+      report[-260:])
 
 # Отдельно - что включённый сон замечен и попал в список бед. Это та беда,
 # что однажды стоила суток работы, и молчать о ней нельзя.

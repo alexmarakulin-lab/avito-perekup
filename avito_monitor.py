@@ -264,6 +264,42 @@ CATEGORIES = {
     # ===== Wildberries =====
     # Вторая площадка. Ozon и Яндекс Маркет проверены настоящим браузером и
     # не читаются: 403 и свои проверки. Подробности и замеры - в wb_source.py.
+    # Земля под свой дом. Категория стоит особняком от всего остального:
+    # это не перекуп, это покупка для себя, и правила у неё другие.
+    #
+    # Радиус вместо города. Всё прочее ищется по Краснодару, а участок в
+    # черте города за эти деньги не купить вовсе. Час езды - это соседние
+    # районы: Динская, Северская, Усть-Лабинск, Тимашевск, Абинск,
+    # Горячий Ключ, Кореновск, Белореченск.
+    "land": {
+        "name": "Земля под дом",
+        "emoji": "🏞",
+        "source": "avito",
+        "min_price": 150000,
+        "max_price": 600000,
+        "radius": 100,
+        # Только владельцу, в канал не уходит ни при каких порогах.
+        #
+        # Канал - про перекуп: там читатель ищет вещь подешевле. Участок
+        # под свой дом ищется для себя и в одном экземпляре, и выкладывать
+        # такие находки означает своими руками приводить себе конкурентов
+        # на тот самый лот, за которым собрался ехать.
+        "private": True,
+        # Своё сито поверх общего. По «участок ижс» полстраницы занимают
+        # не участки: строители с «домами под ключ», готовые дома и дачи с
+        # постройками, паи и огороды без права стройки.
+        "stop_words": [
+            "под ключ", "строительство", "строим", "проект дома", "дом ",
+            "коттедж", "таунхаус", "дача с домом", "пай", "доля",
+            "аренду", "обмен", "меняю",
+        ],
+        "queries": [
+            "участок ижс",
+            "земельный участок",
+            "участок под строительство",
+            "участок лпх",
+        ],
+    },
     "wb_apple": {
         "name": "WB · Apple",
         "emoji": "🍏",
@@ -588,11 +624,17 @@ def build_search_url(query: str, category: str | None = None) -> str:
     # Вилка цен уходит прямо в адрес: это не только отбор, но и экономия -
     # чем уже коридор, тем меньше чужого приезжает вместе со страницей.
     low, high = price_band(cat)
-    return (
+    url = (
         f"https://www.avito.ru/{AVITO_REGION}"
         f"?q={quote(query)}&pmax={high}&pmin={low}"
         f"&s=104&localPriority=1"
     )
+    # Радиус - только там, где он нужен по смыслу. Инструмент за ним никто
+    # не поедет, а участок в черте города за эти деньги не купить вовсе.
+    radius = CATEGORIES.get(cat or "", {}).get("radius")
+    if radius:
+        url += f"&radius={radius}&presentationType=serp"
+    return url
 
 
 def is_home_page(html: str) -> bool:
@@ -951,9 +993,17 @@ def price_band(category: str | None = None) -> tuple[int, int]:
     return int(cat.get("min_price", MIN_PRICE)), int(cat.get("max_price", MAX_PRICE))
 
 
-def is_junk(title: str) -> bool:
+def is_junk(title: str, category: str | None = None) -> bool:
+    """Мусор ли это объявление.
+
+    Общий список один на всех, но у некоторых категорий поверх него есть
+    свой. Слово «дом» нельзя запретить всем - половина мебели продаётся
+    «для дома», - а в поиске участка готовый дом это ровно то, что не
+    нужно. Поэтому такие слова живут в самой категории.
+    """
     low = title.lower()
-    return any(word in low for word in STOP_WORDS)
+    words = STOP_WORDS + list(CATEGORIES.get(category or "", {}).get("stop_words", []))
+    return any(word in low for word in words)
 
 
 def _normalize(text: str) -> str:
@@ -1042,7 +1092,7 @@ def save_items(category: str, query: str, items: list) -> list:
         for item in items:
             if not item["item_id"] or not item["price"]:
                 continue
-            if is_junk(item["title"]):
+            if is_junk(item["title"], category):
                 continue
             if not matches_query(item["title"], query):
                 continue
@@ -1106,7 +1156,7 @@ def rate_deal(item: dict, query: str, category: str | None = None,
     low, high = price_band(category if category is not None else category_of(query))
     if price > high or price < low:
         return False, ""
-    if is_junk(item["title"]):
+    if is_junk(item["title"], category if category is not None else category_of(query)):
         return False, ""
     # Вторая застава: в базу такое уже не попадает, но будить владельца
     # чужим товаром нельзя и при прямом вызове - например из бота.
@@ -1164,6 +1214,30 @@ def money(n) -> str:
     состояние») она выгрызала запятую прямо из середины слова.
     """
     return f"{n:,}".replace(",", " ")
+
+
+# Площадь участка из заголовка: «8 сот.», «10 соток», «12,5 сот», «15 сотых».
+#
+# Отдельно ловятся гектары: «1 га» это сто соток, и без пересчёта такой лот
+# выглядел бы чудовищно дорогим за сотку, хотя всё наоборот.
+AREA_SOTKA = re.compile(r"(\d+[.,]?\d*)\s*(?:сот|сотк|соток|сотых)", re.I)
+AREA_GA = re.compile(r"(\d+[.,]?\d*)\s*га\b", re.I)
+
+
+def parse_area(title: str) -> float | None:
+    """Сколько соток в объявлении. None - если в заголовке не написано.
+
+    Для земли это главное число. Участок за 550 000 бывает и дорогим, и
+    дешёвым: всё решает, восемь там соток или двадцать. Сравнивать такие
+    лоты по цене - то же самое, что сравнивать квартиры по этажу.
+    """
+    m = AREA_SOTKA.search(title)
+    if m:
+        return float(m.group(1).replace(",", "."))
+    m = AREA_GA.search(title)
+    if m:
+        return float(m.group(1).replace(",", ".")) * 100
+    return None
 
 
 def plural(n: int, one: str, few: str, many: str) -> str:
@@ -1226,6 +1300,15 @@ def build_alert(item: dict, category: str, note: str,
     seller = " · ".join(x for x in (f"{score} ★" if score else "", reviews) if x)
     if seller:
         lines.append(f"👤 {seller}")
+
+    # Для земли главное число - не цена, а цена за сотку. Участок за
+    # 550 000 бывает и дорогим, и дешёвым: всё решает, восемь там соток
+    # или двадцать.
+    area = parse_area(item["title"]) if cat.get("radius") or category == "land" else None
+    if area:
+        per = int(item["price"] / area)
+        area_text = f"{area:g}".replace(".", ",")
+        lines.append(f"📐 {area_text} сот · <b>{money(per)} ₽</b> за сотку")
 
     if note:
         lines.append("")
@@ -1995,7 +2078,7 @@ async def monitor_loop(bot):
                 # и медиана по ним ничего не значила бы.
                 page_ref = page_median([
                     i for i in items
-                    if not is_junk(i["title"]) and matches_query(i["title"], query)
+                    if not is_junk(i["title"], cat_key) and matches_query(i["title"], query)
                 ])
 
                 fresh = save_items(cat_key, key, items)
@@ -2021,7 +2104,7 @@ async def monitor_loop(bot):
                         except Exception as exc:
                             logger.error(f"Монитор Авито: не отправил алерт ({exc})")
 
-                    if get_channel_chat():
+                    if get_channel_chat() and not CATEGORIES.get(cat_key, {}).get("private"):
                         ok_channel, ch_note = rate_deal(item, query, cat_key, page_ref, key,
                                                         ratio=CHANNEL_RATIO)
                         if ok_channel:
