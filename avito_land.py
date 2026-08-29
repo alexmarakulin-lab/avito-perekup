@@ -69,7 +69,10 @@ CATEGORY_PATTERNS = [
     ("Промназначения", r"пром"),
     ("Сельхоз", r"сельхоз|\bсх\b|фермер"),
 ]
-BUILDABLE = {"ИЖС", "ЛПХ"}
+# Где реально можно поставить дом. СНТ/ДНП включены: в эту цену вокруг
+# Краснодара это основная масса предложения, дом там строить законно.
+BUILDABLE = {"ИЖС", "ЛПХ", "СНТ/ДНП", "не указано"}
+STRICT_BUILDABLE = {"ИЖС", "ЛПХ"}
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -200,7 +203,8 @@ def enrich_and_filter(rows, args):
             continue
 
         category = classify(title)
-        if args.izhs_only and category not in BUILDABLE:
+        allowed = STRICT_BUILDABLE if args.izhs_only else BUILDABLE
+        if not args.all_categories and category not in allowed:
             continue
 
         sotki = parse_sotki(title)
@@ -231,6 +235,45 @@ def enrich_and_filter(rows, args):
     return out
 
 
+HTML_HEAD = """<!doctype html><meta charset="utf-8">
+<title>Участки под дом вокруг Краснодара</title>
+<style>
+ body{font:15px/1.5 system-ui,sans-serif;margin:24px;color:#1a1a1a}
+ h1{font-size:20px;margin:0 0 4px} .sub{color:#666;margin-bottom:18px}
+ table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;text-align:left}
+ th{background:#f2f2f2;position:sticky;top:0;font-weight:600}
+ tr:nth-child(even) td{background:#fafafa}
+ td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+ a{color:#0a58ca;text-decoration:none} a:hover{text-decoration:underline}
+ .snt{color:#a15c00} .izhs{color:#116329;font-weight:600}
+</style>
+"""
+
+
+def write_html(rows, args):
+    def cls(cat):
+        return "izhs" if cat in STRICT_BUILDABLE else ("snt" if cat == "СНТ/ДНП" else "")
+
+    parts = [HTML_HEAD,
+             "<h1>Участки под дом вокруг Краснодара</h1>",
+             f"<div class=sub>до {args.max_price:,} ₽ · до {args.max_minutes} мин езды · "
+             f"найдено {len(rows)} · собрано {time.strftime('%d.%m.%Y %H:%M')}</div>"
+             .replace(",", " "),
+             "<table><tr><th>Цена</th><th>Соток</th><th>₽/сотка</th><th>Мин</th>"
+             "<th>Назначение</th><th>Адрес</th><th>Объявление</th></tr>"]
+    for r in rows:
+        parts.append(
+            f"<tr><td class=num>{r['цена']:,}</td><td class=num>{r['соток']}</td>"
+            f"<td class=num>{r['цена_за_сотку']:,}</td>".replace(",", " ")
+            + f"<td class=num>{r['минут_от_краснодара']}</td>"
+            f"<td class={cls(r['назначение'])}>{r['назначение']}</td>"
+            f"<td>{r['адрес']}</td>"
+            f"<td><a href='{r['ссылка']}' target=_blank>{r['заголовок']}</a></td></tr>")
+    parts.append("</table>")
+    with open(args.html, "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Участки под дом вокруг Краснодара с Avito")
     ap.add_argument("--max-price", type=int, default=600_000)
@@ -241,7 +284,9 @@ def main():
     ap.add_argument("--min-sotok", type=float, default=3.0)
     ap.add_argument("--pages", type=int, default=10)
     ap.add_argument("--izhs-only", action="store_true",
-                    help="только ИЖС и ЛПХ — где законно строить жилой дом")
+                    help="сузить до ИЖС и ЛПХ (по умолчанию СНТ/ДНП тоже включены)")
+    ap.add_argument("--all-categories", action="store_true",
+                    help="не отсеивать сельхоз и промназначения")
     ap.add_argument("--keep-unknown", action="store_true",
                     help="оставлять объявления с неопознанным населённым пунктом")
     ap.add_argument("--sort", choices=["price", "per_sotka", "time"], default="per_sotka")
@@ -249,6 +294,8 @@ def main():
     ap.add_argument("--delay-range", type=float, nargs=2, default=(2.0, 5.0),
                     metavar=("MIN", "MAX"), help="пауза между страницами, сек")
     ap.add_argument("--out", default="uchastki.csv")
+    ap.add_argument("--html", default="uchastki.html",
+                    help="кликабельный отчёт со ссылками; --html \'\' чтобы не создавать")
     args = ap.parse_args()
 
     raw = scrape(args)
@@ -265,6 +312,10 @@ def main():
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
+
+    if args.html:
+        write_html(rows, args)
+        print(f"Отчёт со ссылками: {args.html}", file=sys.stderr)
 
     for r in rows[:30]:
         sot = f"{r['соток']} сот." if r["соток"] else "площадь н/д"

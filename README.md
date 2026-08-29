@@ -6,11 +6,14 @@
 ```bash
 pip install -r requirements-avito.txt
 playwright install chromium
-python3 avito_land.py --izhs-only --max-price 600000 --max-minutes 60 --pages 15
+python3 avito_land.py --max-price 600000 --max-minutes 60 --pages 15
 ```
 
-Результат — CSV (`uchastki.csv`) и топ-30 в консоли, отсортированные по цене за
-сотку. Время в пути считается по словарю `DRIVE_MINUTES` в начале файла —
+По умолчанию берутся ИЖС, ЛПХ и СНТ/ДНП; сельхоз и промназначения отсеиваются
+(`--all-categories` отключает отсев, `--izhs-only` сужает до ИЖС и ЛПХ).
+
+Результат — `uchastki.html` (кликабельный список объявлений), `uchastki.csv`
+и топ-30 в консоли, отсортированные по цене за сотку. Время в пути считается по словарю `DRIVE_MINUTES` в начале файла —
 дополняйте его своими населёнными пунктами.
 
 Если Avito показывает капчу, перезапустите с `--headful` и пройдите её вручную:
