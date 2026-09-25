@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
+import sys
 import asyncio
 import time
 import io
@@ -14,17 +16,16 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, Comma
 from telegram.constants import ChatAction
 
 # ========== НАСТРОЙКИ ==========
-TELEGRAM_TOKEN = "8369532250:AAG7Ka0IjmVb4a1vjdbGzavRy0Ro3UWFgqY"
-GROQ_API_KEY = "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"
+# Ключи берутся из переменных окружения - в коде их хранить нельзя (репозиторий публичный)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "")  # необязательно, ключ с serper.dev
 
-GROQ_MODELS = [
-    "llama-3.3-70b-versatile",  # основная - умная, качественные ответы
-    "llama-3.1-70b-versatile",  # резерв 1
-    "mixtral-8x7b-32768",       # резерв 2
-    "gemma2-9b-it",             # резерв 3 - слабее, но всегда доступна
-]
+# Первая - основная, остальные - резерв. Можно переопределить: GROQ_MODELS="модель1,модель2"
+GROQ_MODELS = [m.strip() for m in os.environ.get(
+    "GROQ_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant"
+).split(",") if m.strip()]
 
-SERPER_API_KEY = ""  # ВСТАВЬ КЛЮЧ с serper.dev (бесплатно 2500 запросов)
 MAX_HISTORY = 6          # СНИЖЕНО с 20 до 6 - экономия токенов
 MAX_MESSAGE_LENGTH = 4096
 RETRY_ATTEMPTS = 2       # СНИЖЕНО с 3 до 2
@@ -47,24 +48,27 @@ logger = logging.getLogger(__name__)
 SYSTEM_BASE = """Ты - многопрофильный эксперт-практик с 20-летним опытом. Отвечаешь как опытный коллега, а не как учебник.
 
 ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА:
-1. Только конкретика: цифры, температуры, сроки, объёмы. Никаких "может указывать", "обычно", "как правило".
+1. Давай конкретику: цифры, температуры, сроки, объёмы. Если значение зависит от условий - назови диапазон и от чего он зависит; если точных данных нет - так и скажи, не придумывай цифру.
 2. Никогда не пересказывай человеку то, что он только что сам написал. Если он цитирует текст и спрашивает "как понять?" - дай практический смысл, а не пересказ по пунктам.
 3. Не делай нумерованные списки там, где можно ответить одним абзацем.
 4. Если вопрос простой - ответ короткий. Не раздувай.
-5. Формулы ТОЛЬКО обычным текстом, БЕЗ LaTeX, БЕЗ $$, $, \\frac.
+5. Ответ уходит в Telegram обычным текстом без разметки: LaTeX ($$, $, \\frac) и Markdown (**, ##) пользователь увидит сырыми символами. Формулы пиши текстом, например: Q = I x t / 0.8.
 6. Язык: русский. Никогда не придумывай номера нормативных документов.
 
-ПРИМЕР ПЛОХОГО ОТВЕТА на "как понять что пиво прошло карбонизацию":
-"1. Пенистость: если пиво стало более пенистым... 2. Газированность: если пиво шипит..."
+Примеры ниже показывают стиль, а не длину и не тему ответа.
 
-ПРИМЕР ХОРОШЕГО ОТВЕТА:
-"Сожми пластиковую бутылку - если твёрдая как камень, готово. Со стеклом: открой тестовую бутылку через 7 дней - должно зашипеть и дать пену. Если газа мало - ещё 3-5 дней при 20 C."
+Вопрос: "как понять что пиво прошло карбонизацию"
+Плохо: "1. Пенистость: если пиво стало более пенистым... 2. Газированность: если пиво шипит..."
+Хорошо: "Сожми пластиковую бутылку - если твёрдая как камень, готово. Со стеклом: открой тестовую бутылку через 7 дней - должно зашипеть и дать пену. Если газа мало - ещё 3-5 дней при 20 C."
+
+Вопрос: "ток 0.5 А, резерв 24 часа - какой АКБ?"
+Хорошо: "Q = 0.5 x 24 / 0.8 = 15 Ач. Бери ближайший стандартный номинал сверху - 17 Ач."
 """
 
 # Модули - подключаются только при необходимости
 MODULES = {
     "fire": """== СЛАБОТОЧНЫЕ СИСТЕМЫ: СПС и СОУЭ ==
-СП 484.1311500.2020 + Изм.N1 (2025) - СПС; СП 3.13130.2026 (с 01.06.2026) / СП 3.13130.2009 (до 01.06.2026) - СОУЭ.
+СП 484.1311500.2020 + Изм.N1 (2025) - СПС; СП 3.13130.2026 (действует с 01.06.2026, заменил СП 3.13130.2009) - СОУЭ.
 СП 3.13130.2026: отменена классификация типов 1-5, разборчивость речи >= 90%, тактильные оповещатели для МГН (3% вместимости, не менее 1 шт.), экстренная связь у выходов, зонирование оповещения.
 Формула УЗД: Lp2 = Lp1 + 20 lg (r1 / r2), где r1=1м.
 Расчёт АКБ: Q = I x t / 0.8 (Ач).
@@ -112,8 +116,8 @@ Hefeweizen, 23 л, ABV 4.2-4.4%, OG 1.043-1.045, FG ~1.011, IBU 11-12, EBC ~8.
 # Ключевые слова для определения нужного модуля
 MODULE_KEYWORDS = {
     "fire": ["спс", "соуэ", "сигнализац", "оповещ", "пожар", "извещател", "шлейф", "акб", "ивэпр", "рип",
-             "sp 484", "sp 3", "кпсн", "frls", "болид", "рубеж", "аргус", "питани", "резерв"],
-    "skud_cctv": ["скуд", "доступ", "камер", "видеонаблюд", "cctv", "сот", "биометр", "mifare",
+             "сп 484", "сп 3.", "сп 6.", "sp 484", "sp 3", "кпсн", "frls", "болид", "рубеж", "аргус", "питани", "резерв"],
+    "skud_cctv": ["скуд", "доступ", "камер", "видеонаблюд", "cctv", "биометр", "mifare",
                   "hikvision", "dahua", "axis", "parsec", "zkteco", "турникет"],
     "sks_docs": ["скс", "кабел", "cat5", "cat6", "cat7", "cat8", "документ", "проект", "рд ", "пд ",
                  "спецификац", "чертёж", "патч", "poe", "витая пара", "гост 21"],
@@ -170,8 +174,7 @@ SECTION_TEXTS = {
     "📢 СОУЭ": (
         "📢 Системы оповещения и управления эвакуацией (СОУЭ)\n\n"
         "Актуальные нормы:\n"
-        "* до 01.06.2026 - СП 3.13130.2009\n"
-        "* с 01.06.2026 - СП 3.13130.2026 (новый!)\n\n"
+        "* СП 3.13130.2026 (действует с 01.06.2026, заменил СП 3.13130.2009)\n\n"
         "Ключевые изменения в СП 3.13130.2026:\n"
         "- Отменена классификация типов 1-5, введены способы оповещения\n"
         "- Разборчивость речи не менее 90% площади\n"
@@ -386,9 +389,6 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
         m["content"] for m in conversation_history[user_id][-2:] if m["role"] == "user"
     )
     modules = select_modules(all_text)
-
-    # Если модули не определились - добавляем базовый fire как fallback для слаботочки
-    # (чтобы бот не был совсем пустым)
     system_prompt = build_system_prompt(modules, pdf_text, extra_context)
 
     conversation_history[user_id].append({"role": "user", "content": user_message})
@@ -418,9 +418,12 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
                     response.raise_for_status()
                     data = response.json()
                     answer = data["choices"][0]["message"]["content"]
+                    truncated = data["choices"][0].get("finish_reason") == "length"
 
                 conversation_history[user_id].append({"role": "assistant", "content": answer})
-                logger.info(f"OK model={model} user={user_id} modules={modules}")
+                logger.info(f"OK model={model} user={user_id} modules={modules} truncated={truncated}")
+                if truncated:
+                    return answer + "\n\n[... ответ обрезан по лимиту длины - напиши «продолжи»]"
                 return answer
 
             except httpx.HTTPStatusError as e:
@@ -429,6 +432,8 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
                 logger.warning(f"HTTP {status} model={model} attempt={attempt}")
                 if status in (401, 403):
                     raise Exception("неверный_ключ")
+                if status in (400, 404):
+                    break
                 if status == 429:
                     # Экспоненциальный backoff при rate limit
                     wait = RETRY_DELAY * (2 ** attempt)
@@ -451,6 +456,9 @@ async def ask_groq(user_id: int, user_message: str, extra_context: str = "") -> 
 
         logger.warning(f"Модель {model} недоступна, следующая...")
 
+    # Вопрос без ответа не оставляем в истории, иначе повторный вопрос уйдёт дублем
+    if conversation_history[user_id] and conversation_history[user_id][-1]["role"] == "user":
+        conversation_history[user_id].pop()
     raise Exception(f"groq_недоступен: {last_error}")
 
 
@@ -638,6 +646,9 @@ async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
+    missing = [name for name in ("TELEGRAM_TOKEN", "GROQ_API_KEY") if not os.environ.get(name)]
+    if missing:
+        sys.exit(f"Не заданы переменные окружения: {', '.join(missing)}. См. README.md")
     logger.info("Запуск бота...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
