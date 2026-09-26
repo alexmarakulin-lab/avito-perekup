@@ -1,0 +1,48 @@
+services:
+  avito:
+    build: .
+    image: avito-perekup
+    container_name: avito-bot
+    restart: unless-stopped
+    environment:
+      AVITO_BOT_TOKEN: ${AVITO_BOT_TOKEN:?задай токен в .env}
+      AVITO_OWNER_ID: ${AVITO_OWNER_ID:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Обход блокировки Telegram. На Авито не влияет - он читается напрямую.
+      TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
+      TELEGRAM_BASE_URL: ${TELEGRAM_BASE_URL:-}
+      TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-30}
+      AVITO_DB: /data/avito.db
+      # Запуск монитора без кнопок: нужен, пока опрос Telegram нестабилен.
+      # Кнопка «🟢 Включить» делает то же самое, но требует живого опроса.
+      AVITO_ENABLED: ${AVITO_ENABLED:-}
+      AVITO_OWNER_CHAT: ${AVITO_OWNER_CHAT:-}
+      AVITO_MAX_PRICE: ${AVITO_MAX_PRICE:-5000}
+      # Скорость обхода. От неё зависит и блокировка, и счёт за трафик,
+      # если Авито читается через прокси с оплатой по гигабайтам.
+      AVITO_QUERIES_PER_CYCLE: ${AVITO_QUERIES_PER_CYCLE:-5}
+      AVITO_REQ_DELAY_MIN: ${AVITO_REQ_DELAY_MIN:-45}
+      AVITO_REQ_DELAY_MAX: ${AVITO_REQ_DELAY_MAX:-90}
+      AVITO_CYCLE_PAUSE: ${AVITO_CYCLE_PAUSE:-600}
+      AVITO_REGION: ${AVITO_REGION:-krasnodar}
+      AVITO_PROXY: ${AVITO_PROXY:-}
+      # Как читаем Авито. Умолчания заданы в Dockerfile: браузер, обычный
+      # режим под виртуальным экраном, профиль на томе. Здесь - только чтобы
+      # можно было переключить, не пересобирая образ.
+      AVITO_FETCH: ${AVITO_FETCH:-browser}
+      AVITO_BROWSER_HEADLESS: ${AVITO_BROWSER_HEADLESS:-0}
+      TZ: Europe/Moscow
+    # Chromium в один гигабайт памяти влезает впритык. Ограничение здесь не
+    # для экономии, а чтобы при утечке контейнер перезапустился сам, а не
+    # утащил за собой весь сервер: на машине без свободной памяти перестаёт
+    # отвечать и ssh, и панель.
+    mem_limit: ${AVITO_MEM_LIMIT:-800m}
+    volumes:
+      - ./data:/data
+    # Закрепляем адрес Telegram по IPv4. Иначе на серверах, где IPv6 настроен
+    # но не работает, имя api.telegram.org разрешается в адрес вида 2001:...,
+    # соединение уходит в никуда и бот виснет на старте без ошибки.
+    # Свой адрес можно подставить через TELEGRAM_IPV4 в .env, если этот
+    # перестанет отвечать: узнать его - getent ahostsv4 api.telegram.org
+    extra_hosts:
+      - "api.telegram.org:${TELEGRAM_IPV4:-149.154.167.220}"
