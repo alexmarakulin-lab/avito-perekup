@@ -21,6 +21,29 @@ import avito_monitor as am
 am.USE_CFFI = False
 am.USE_BROWSER = False
 
+
+def sealed(module):
+    """Отгораживает проверки от компьютера, на котором их запустили.
+
+    Диагностика читает настоящий .env и настоящий файл автозапуска - так и
+    надо, это её работа. Но проверка, которая заглядывает в них, зависит от
+    машины: у владельца 26.09.2026 «всё цело» покраснело ровно тогда, когда
+    он вписал в свой .env канал и ключ, - тестовый бот их, разумеется, не
+    видел, и диагностика честно написала «вписано, но бот не видит».
+
+    Вызовы с явным путём остаются настоящими: ими проверяются сами эти
+    функции на пробных файлах. Заглушается только чтение «по умолчанию».
+    """
+    real_env_has = module.env_file_has
+    real_autostart = module.autostart_target
+    module.env_file_has = (lambda key, path=None:
+                           real_env_has(key, path) if path else False)
+    module.autostart_target = (lambda link=None:
+                               real_autostart(link) if link else None)
+
+
+sealed(am)
+
 fails = []
 
 
@@ -29,6 +52,12 @@ def check(name, cond, extra=""):
     if not cond:
         fails.append(name)
 
+
+# Ограда стоит: чтение «по умолчанию» не заглядывает в настоящие файлы
+# компьютера, как бы они ни были заполнены.
+check("ограда: настоящий .env проверкам не виден",
+      am.env_file_has("AVITO_CHANNEL_CHAT") is False and am.env_file_has("GROQ_API_KEY") is False)
+check("ограда: настоящий автозапуск проверкам не виден", am.autostart_target() is None)
 
 # --- фикстура: JSON, встроенный в страницу ---
 payload = {
@@ -1813,6 +1842,7 @@ am.set_setting("query_cursor", "0")
 before_restart = am.take_queries()
 import importlib
 importlib.reload(am)                         # то, что делает перезапуск
+sealed(am)                                   # перезагрузка снимает ограду
 am.init_db()
 am.USE_CFFI = False
 am.USE_BROWSER = False
@@ -1826,7 +1856,7 @@ check("очередь: после перезапуска обход продол
 am.set_setting("query_cursor", "0")
 reached = set()
 for _ in range(12):
-    importlib.reload(am); am.init_db(); am.QUERIES_PER_CYCLE = 5
+    importlib.reload(am); sealed(am); am.init_db(); am.QUERIES_PER_CYCLE = 5
     for _ in range(8):
         reached |= {c for c, _ in am.take_queries()}
 am.USE_CFFI = False
