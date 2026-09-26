@@ -1589,6 +1589,75 @@ check("канал: выброшенное не считается выложен
       all("stale" not in t for t in collector.sent))
 am.set_setting("channel_chat", "")
 
+# --- две копии проекта и пропавшие настройки ---
+# 26.09.2026 диагностика у владельца показала «канал не настроен» и «нет
+# ключа Groq», хотя месяцем раньше оба работали. Похоже на две копии
+# проекта: настройки вписаны в одну, запущена другая. Эти проверки -
+# про то, чтобы диагностика отличала такие случаи сама.
+tmp_dir = tempfile.mkdtemp()
+env_probe = os.path.join(tmp_dir, ".env")
+with open(env_probe, "w", encoding="utf-8") as f:
+    f.write("AVITO_BOT_TOKEN=1:x\nAVITO_CHANNEL_CHAT=@krd_nahodki\n"
+            "GROQ_API_KEY=\nAVITO_OWNER_ID='555'\n")
+check("копии: заполненная настройка в .env видна",
+      am.env_file_has("AVITO_CHANNEL_CHAT", env_probe) is True)
+check("копии: пустая настройка в .env считается отсутствующей",
+      am.env_file_has("GROQ_API_KEY", env_probe) is False)
+check("копии: настройки нет в .env вовсе",
+      am.env_file_has("AVITO_PROXY", env_probe) is False)
+check("копии: нет самого файла .env - честное «не знаю»",
+      am.env_file_has("GROQ_API_KEY", os.path.join(tmp_dir, "nope")) is None)
+
+link = os.path.join(tmp_dir, "perekup-bot.bat")
+with open(link, "w", encoding="ascii") as f:
+    f.write('@echo off\r\ncd /d "C:\\Users\\8523~1\\old\\avito-perekup"\r\n'
+            'start "" /min "python.exe" run_bot.py\r\n')
+check("копии: папка автозапуска прочитана из его файла",
+      am.autostart_target(link) == "C:\\Users\\8523~1\\old\\avito-perekup",
+      am.autostart_target(link))
+check("копии: выключенный автозапуск не выдаётся за включённый",
+      am.autostart_target(os.path.join(tmp_dir, "missing.bat")) is None)
+check("копии: одна и та же папка узнаётся", am.same_folder(tmp_dir, tmp_dir + os.sep + "."))
+check("копии: разные папки различаются", not am.same_folder(tmp_dir, tempfile.gettempdir()))
+
+# --- тихие сутки видны как тихие ---
+# «21 объявление за сутки» само по себе ничего не говорит. Сравнение с
+# обычными сутками этой же базы отвечает сразу: бот спал.
+quiet_db = os.path.join(tmp_dir, "quiet.db")
+real_db = am.DB_PATH
+am.DB_PATH = quiet_db
+am.init_db()
+now_q = time.time()
+with am._connect() as c:
+    rows = [(f"q{i}", "instrument", "перфоратор", f"Перфоратор {i}", 3000,
+             f"https://www.avito.ru/krasnodar/q{i}", "",
+             now_q - (1 + (i % 29)) * 86400 - 60, 0, None, None) for i in range(29 * 200)]
+    rows += [(f"t{i}", "instrument", "перфоратор", f"Перфоратор t{i}", 3000,
+              f"https://www.avito.ru/krasnodar/t{i}", "", now_q - 600, 0, None, None)
+             for i in range(21)]
+    c.executemany("INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+
+am.fetch_html = good_fetch
+am.USE_BROWSER = True
+am.sleep_setting = lambda: (True, "спящий режим от сети отключён")
+uq = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(uq, Ctx(Silent())))
+quiet = uq.message.texts[-1]
+usual_m = re.search(r"обычно около (\d+)", quiet)
+check("тихие сутки: названы тихими, с обычной нормой для сравнения",
+      usual_m is not None and 180 <= int(usual_m.group(1)) <= 230, quiet[:500])
+check("тихие сутки: склонение верное - «21 объявление»",
+      "21 объявление " in quiet, quiet[:500])
+check("тихие сутки: сказано, что это значит",
+      "компьютер спал" in quiet, quiet[-400:])
+check("тихие сутки: названа настоящая разница, а не «вполовину»",
+      re.search(r"в (9|10|11) раз тише", quiet) is not None, quiet[-400:])
+check("диагностика: видно, из какой папки запущен бот",
+      "Бот запущен из" in quiet, quiet[-600:])
+am.DB_PATH = real_db
+am.fetch_html, am.sleep_setting = real_fetch, real_sleep_check
+am.USE_BROWSER = False
+
 # --- кнопка «Проверить канал» ---
 # Забытое право на публикацию - самая частая беда с каналами, и узнать о
 # ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.

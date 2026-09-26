@@ -1771,6 +1771,55 @@ def sleep_setting() -> tuple:
         return None, f"не спросил у Windows ({exc})"
 
 
+def autostart_target(link: str | None = None) -> str | None:
+    """Папка, из которой автозапуск поднимет бота. None - автозапуск выключен.
+
+    Автозапуск запоминает папку в момент включения. Если потом проект
+    склонировали заново в другое место, после перезагрузки Windows
+    поднимется старая копия со старым кодом, а замок на второй запуск не
+    пустит новую. Снаружи это выглядит как «обновление не помогло».
+    """
+    if link is None:
+        try:
+            import autostart
+            link = autostart.LINK
+        except Exception:
+            return None
+    try:
+        with open(link, encoding="ascii", errors="ignore") as f:
+            m = re.search(r'cd /d "([^"]+)"', f.read())
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def same_folder(a: str, b: str) -> bool:
+    """Одна ли это папка, даже если одна записана коротким именем C:\\8523~1."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def env_file_has(key: str, path: str | None = None) -> bool | None:
+    """Есть ли у настройки непустое значение в самом файле .env.
+
+    Нужно, чтобы отличать две разные беды с одинаковым видом снаружи:
+    «в файле этого нет» и «в файле есть, а бот не видит». Значение не
+    возвращается и не показывается: это ключи и токены.
+    """
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                name, sep, value = line.strip().partition("=")
+                if sep and name.strip() == key and value.strip().strip("\"'"):
+                    return True
+        return False
+    except OSError:
+        return None
+
+
 async def sleep_setting_async() -> tuple:
     """То же, но не задерживая опрос Telegram.
 
@@ -1845,8 +1894,23 @@ async def cmd_selfcheck(update, context):
         day = conn.execute("SELECT COUNT(*) c FROM items WHERE first_seen > ?",
                            (time.time() - 86400,)).fetchone()["c"]
         total = conn.execute("SELECT COUNT(*) c FROM items").fetchone()["c"]
-    if day:
-        lines.append(f"✅ За сутки собрано {day} объявлений (всего {money(total)})")
+        first = conn.execute("SELECT MIN(first_seen) m FROM items").fetchone()["m"]
+    ads = plural(day, "объявление", "объявления", "объявлений")
+    # Число за сутки само по себе ничего не говорит: 21 - это много или
+    # мало? Сравнение с обычными сутками этой же базы отвечает сразу.
+    # Именно так 26.09.2026 стало видно, что бот большую часть месяца
+    # спал вместе с компьютером.
+    span_days = (time.time() - first) / 86400 if first else 0
+    usual = int((total - day) / (span_days - 1)) if span_days >= 4 else 0
+    if day and usual and day < usual * 0.4:
+        lines.append(f"⚠️ За сутки собрано {day} {ads} — обычно около {usual} "
+                     f"(всего {money(total)})")
+        times = max(2, round(usual / day))
+        trouble.append(f"Сутки прошли в {times} {plural(times, 'раз', 'раза', 'раз')} "
+                       f"тише обычного. Почти всегда это значит, что компьютер "
+                       f"спал или бот стоял.")
+    elif day:
+        lines.append(f"✅ За сутки собрано {day} {ads} (всего {money(total)})")
     elif total:
         lines.append(f"⚠️ За сутки ноль новых, в базе {money(total)}")
         trouble.append("Сутки без единой карточки — либо бот стоял, либо Авито не пускает.")
@@ -1856,7 +1920,11 @@ async def cmd_selfcheck(update, context):
     # 5. Канал.
     chat = get_channel_chat()
     if not chat:
-        lines.append("⚪️ Канал не настроен")
+        if env_file_has("AVITO_CHANNEL_CHAT"):
+            lines.append("❌ Канал вписан в .env, но бот его не видит")
+            trouble.append("Перезапусти бота: настройки читаются только при старте.")
+        else:
+            lines.append("⚪️ Канал не настроен — в .env этой копии его нет")
     else:
         try:
             # Спрашиваем права напрямую, ничего не отправляя. Через
@@ -1898,8 +1966,11 @@ async def cmd_selfcheck(update, context):
         import resale_expert
         if resale_expert.available():
             lines.append("✅ Консультант включён")
+        elif env_file_has("GROQ_API_KEY"):
+            lines.append("❌ Ключ Groq вписан в .env, но бот его не видит")
+            trouble.append("Перезапусти бота: настройки читаются только при старте.")
         else:
-            lines.append("⚪️ Консультант выключен — нет ключа Groq")
+            lines.append("⚪️ Консультант выключен — в .env этой копии нет ключа Groq")
     except Exception as exc:
         lines.append(f"⚠️ Консультант не отвечает на вопрос о себе ({exc})")
 
@@ -1915,7 +1986,23 @@ async def cmd_selfcheck(update, context):
     else:
         lines.append(f"⚪️ Сон: {note}")
 
-    # 8. Скорость обхода - не поломка, но её стоит видеть.
+    # 8. Откуда запущен бот и куда смотрит автозапуск. Две копии проекта
+    # на одном компьютере - беда тихая: настройки вписаны в одну, работает
+    # другая, а после перезагрузки поднимается третья по счёту правда.
+    here = os.path.dirname(os.path.abspath(__file__))
+    lines.append(f"📁 Бот запущен из: <code>{here}</code>")
+    target = autostart_target()
+    if target is None:
+        lines.append("⚪️ Автозапуск выключен")
+    elif same_folder(target, here):
+        lines.append("✅ Автозапуск поднимет эту же копию")
+    else:
+        lines.append(f"❌ Автозапуск смотрит в другую папку: <code>{target}</code>")
+        trouble.append("После перезагрузки поднимется другая копия бота, со старым "
+                       "кодом и своими настройками. В папке этой копии запусти "
+                       "«Автозапуск» и включи заново - он перепишет путь.")
+
+    # 9. Скорость обхода - не поломка, но её стоит видеть.
     per_cycle = cycle_size()
     queries = len(all_queries())
     cycle_min = max(1, int((per_cycle * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60))
