@@ -6,6 +6,7 @@
 Запускается фоновой задачей внутри avito_bot.py, отдельный процесс не нужен.
 """
 import asyncio
+import html
 import json
 import logging
 import os
@@ -1244,6 +1245,22 @@ def rate_deal(item: dict, query: str, category: str | None = None,
 
 
 # ========== ОТПРАВКА ==========
+def h(text) -> str:
+    """Текст снаружи - в безопасный для HTML-сообщения Telegram вид.
+
+    Все сообщения бота уходят в режиме HTML, а по правилам Telegram
+    символы <, > и & вне тегов обязаны быть экранированы: иначе он
+    отвергает сообщение целиком. Названия с Авито вставлялись как есть, и
+    «Шуруповерт Black & Decker» - настоящая марка инструмента - не дошёл
+    бы ни владельцу, ни в канал. Хуже того: в канале такой лот вставал
+    первым в очереди, падал и не пускал очередь дальше.
+
+    Через h() идёт всё, что пришло снаружи: названия, адреса, продавцы,
+    ссылки, тексты ошибок. Своё - теги, эмодзи, числа - не трогаем.
+    """
+    return html.escape(str(text), quote=False)
+
+
 def money(n) -> str:
     """Число с пробелами по разрядам: 7500 -> «7 500».
 
@@ -1308,7 +1325,7 @@ def build_alert(item: dict, category: str, note: str,
     cat = CATEGORIES.get(category, {})
 
     lines = [f"{cat.get('emoji', '📦')} <b>{cat.get('name', category)}</b>",
-             "", item["title"], ""]
+             "", h(item["title"]), ""]
 
     if market:
         diff = market - item["price"]
@@ -1333,12 +1350,12 @@ def build_alert(item: dict, category: str, note: str,
         lines.append(f"{mark} {human_age(age)}")
 
     if item.get("address"):
-        lines.append(f"📍 {item['address']}")
+        lines.append(f"📍 {h(item['address'])}")
 
     score, reviews = item.get("seller_score", ""), item.get("seller_reviews", "")
     seller = " · ".join(x for x in (f"{score} ★" if score else "", reviews) if x)
     if seller:
-        lines.append(f"👤 {seller}")
+        lines.append(f"👤 {h(seller)}")
 
     # Для земли главное число - не цена, а цена за сотку. Участок за
     # 550 000 бывает и дорогим, и дешёвым: всё решает, восемь там соток
@@ -1354,7 +1371,7 @@ def build_alert(item: dict, category: str, note: str,
         lines.append(note)
 
     lines.append("")
-    lines.append(item["url"])
+    lines.append(h(item["url"]))
     return "\n".join(lines)
 
 
@@ -1546,7 +1563,7 @@ def build_report(hours: int = 24) -> str:
                 f"   новых: {len(prices)} | медиана: {money(int(statistics.median(prices)))} ₽"
                 f" | мин: {money(prices[0])} ₽"
             )
-            lines.append(f"   дешевле всех: {cheapest['title'][:60]}")
+            lines.append(f"   дешевле всех: {h(cheapest['title'][:60])}")
 
         sold = conn.execute(
             "SELECT title, price FROM items WHERE sold_at > ? ORDER BY sold_at DESC LIMIT 5",
@@ -1556,7 +1573,7 @@ def build_report(hours: int = 24) -> str:
     if sold:
         lines.append("\n<b>Ушло с рынка</b> (реальная цена продажи):")
         for row in sold:
-            lines.append(f"   • {row['title'][:50]} — {money(row['price'])} ₽")
+            lines.append(f"   • {h(row['title'][:50])} — {money(row['price'])} ₽")
     else:
         lines.append("\n<i>Продаж за период не зафиксировано.</i>")
 
@@ -1620,7 +1637,7 @@ def build_channel_digest(days: int = 7) -> str:
     if best and best["market"]:
         diff = 1 - best["price"] / best["market"]
         lines.append(f"\n<b>Находка недели</b>\n"
-                     f"{best['title'][:60]} — {money(best['price'])} ₽ "
+                     f"{h(best['title'][:60])} — {money(best['price'])} ₽ "
                      f"при рынке {money(best['market'])} ₽ (−{int(diff * 100)}%)")
 
     return "\n".join(lines)
@@ -1653,7 +1670,7 @@ def build_sold_proof(days: int = 7, limit: int = 5) -> str:
     lines = ["🏃 <b>Разобрали за неделю</b>\n",
              "Из того, что выкладывали здесь, уже снято с Авито:\n"]
     for r in rows:
-        line = f"• {r['title'][:55]} — {money(r['price'])} ₽"
+        line = f"• {h(r['title'][:55])} — {money(r['price'])} ₽"
         if r["market"]:
             line += f" (рынок {money(r['market'])} ₽)"
         # Срок - верхняя граница, а не точное время. Бот узнаёт о снятии
@@ -1870,7 +1887,7 @@ async def cmd_selfcheck(update, context):
             trouble.append("Похоже на капчу или смену вёрстки. "
                            "Нажми «🔍 Проверить Авито» — там подробности.")
     except Exception as exc:
-        lines.append(f"❌ Авито не читается: {str(exc)[:70]}")
+        lines.append(f"❌ Авито не читается: {h(str(exc)[:70])}")
         trouble.append("Пока это не починится, находок не будет.")
 
     # 3б. Чем именно ходим. Строка выглядит лишней ровно до того дня,
@@ -1880,7 +1897,7 @@ async def cmd_selfcheck(update, context):
     # через три секунды после запуска.
     if USE_BROWSER:
         which = avito_browser.EXECUTABLE or avito_browser.CHANNEL or "встроенный Chromium"
-        lines.append(f"ℹ️ Ходим браузером ({which})")
+        lines.append(f"ℹ️ Ходим браузером ({h(which)})")
         if not avito_browser.EXECUTABLE and avito_browser.CHANNEL is None:
             trouble.append("Браузер выбран встроенный, а он на этой машине не "
                            "запускается. В .env: AVITO_BROWSER_CHANNEL=chrome")
@@ -1950,14 +1967,14 @@ async def cmd_selfcheck(update, context):
                 ).fetchone()["c"]
             title = getattr(me, "title", None) or str(chat)
             if right == "на связи":
-                lines.append(f"✅ Канал «{title}» на связи — "
+                lines.append(f"✅ Канал «{h(title)}» на связи — "
                              f"в очереди {waiting}, выложено {posted}")
             else:
-                lines.append(f"❌ Канал «{title}»: {right}")
+                lines.append(f"❌ Канал «{h(title)}»: {right}")
                 trouble.append("Канал → Администраторы → бот → включить "
                                "«Публикация сообщений».")
         except Exception as exc:
-            lines.append(f"❌ Канал {chat} не отвечает: {str(exc)[:60]}")
+            lines.append(f"❌ Канал {h(chat)} не отвечает: {h(str(exc)[:60])}")
             trouble.append("Нажми «📢 Проверить канал» — он скажет, что именно чинить.")
 
     # 6. Консультант. Ввозится здесь, а не наверху файла: consultant сам
@@ -1977,27 +1994,27 @@ async def cmd_selfcheck(update, context):
     # 7. Сон компьютера: та самая беда, от которой бот однажды умер на сутки.
     ok, note = await sleep_setting_async()
     if ok is True:
-        lines.append(f"✅ Сон: {note}")
+        lines.append(f"✅ Сон: {h(note)}")
     elif ok is False:
-        lines.append(f"❌ Сон: {note}")
+        lines.append(f"❌ Сон: {h(note)}")
         trouble.append("Параметры → Система → Питание → «При питании от сети "
                        "переводить в спящий режим» → Никогда. "
                        "Пока компьютер спит, бот не ищет.")
     else:
-        lines.append(f"⚪️ Сон: {note}")
+        lines.append(f"⚪️ Сон: {h(note)}")
 
     # 8. Откуда запущен бот и куда смотрит автозапуск. Две копии проекта
     # на одном компьютере - беда тихая: настройки вписаны в одну, работает
     # другая, а после перезагрузки поднимается третья по счёту правда.
     here = os.path.dirname(os.path.abspath(__file__))
-    lines.append(f"📁 Бот запущен из: <code>{here}</code>")
+    lines.append(f"📁 Бот запущен из: <code>{h(here)}</code>")
     target = autostart_target()
     if target is None:
         lines.append("⚪️ Автозапуск выключен")
     elif same_folder(target, here):
         lines.append("✅ Автозапуск поднимет эту же копию")
     else:
-        lines.append(f"❌ Автозапуск смотрит в другую папку: <code>{target}</code>")
+        lines.append(f"❌ Автозапуск смотрит в другую папку: <code>{h(target)}</code>")
         trouble.append("После перезагрузки поднимется другая копия бота, со старым "
                        "кодом и своими настройками. В папке этой копии запусти "
                        "«Автозапуск» и включи заново - он перепишет путь.")

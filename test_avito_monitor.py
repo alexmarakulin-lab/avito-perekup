@@ -1658,6 +1658,90 @@ am.DB_PATH = real_db
 am.fetch_html, am.sleep_setting = real_fetch, real_sleep_check
 am.USE_BROWSER = False
 
+# --- чужой текст в HTML-сообщениях ---
+# Все сообщения бота уходят в режиме HTML, а по правилам Telegram <, > и &
+# вне тегов обязаны быть экранированы - иначе сообщение отвергается
+# целиком. Названия с Авито вставлялись как есть: «Black & Decker» -
+# настоящая марка инструмента - не дошёл бы ни владельцу, ни в канал, а в
+# канале такой лот ещё и затыкал очередь. Проверка повторяет опубликованное
+# правило Telegram, потому что спросить его самого отсюда нельзя.
+TG_TAGS = (r"</?(b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)>"
+           r"|<a href=\"[^\"<>]*\">|</a>")
+
+
+def telegram_accepts(text):
+    bare = re.sub(TG_TAGS, "", text)
+    if "<" in bare or ">" in bare:
+        return False
+    return all(re.match(r"&(lt|gt|amp|quot|#\d+|#x[0-9a-fA-F]+);", bare[m.start():])
+               for m in re.finditer("&", bare))
+
+
+nasty = {"item_id": "amp1", "title": "Шуруповерт Black & Decker <18V>", "price": 2500,
+         "url": "https://www.avito.ru/krasnodar/amp1?a=1&b=2",
+         "address": "ул. Красная <центр> & рынок",
+         "seller_score": "4.9", "seller_reviews": "12 отзывов & <новый>"}
+alert = am.build_alert(nasty, "instrument", "🔥 дешевле", 5000)
+check("HTML: уведомление с «&» и «<» Telegram примет", telegram_accepts(alert), alert)
+check("HTML: название показано как есть, а не кашей",
+      "Black &amp; Decker &lt;18V&gt;" in alert, alert.split("\n")[2])
+check("HTML: свои теги не сломаны экранированием",
+      "<b>Инструмент и стройка</b>" in alert and "<s>" in alert)
+check("HTML: запятые и прочее в названии не тронуты",
+      am.h("Bosch, 18V (новый)") == "Bosch, 18V (новый)")
+
+# Сквозь весь круг: находка с «&» доходит и владельцу, и в канал.
+am.QUERIES_PER_CYCLE = 1
+am.set_setting("query_cursor", "0")
+# Цены - от текущей медианы: к этому месту файла её уже сдвинули
+# предыдущие проверки, и зашитые числа проверяли бы не то.
+market_now, _ = am.median_price(am.stats_key(am.source_of(cat_key), query))
+amp_page = make_page([
+    {"id": 96001, "title": f"{query} Black & Decker <18V>", "price": int(market_now * 0.3)},
+    {"id": 96002, "title": f"{query} Makita", "price": int(market_now * 0.6)}])
+
+
+class StrictBot(LoopBot):
+    """Бот, который, как Telegram, отвергает невалидный HTML."""
+    async def send_message(self, chat_id, text, **kwargs):
+        if kwargs.get("parse_mode") == "HTML" and not telegram_accepts(text):
+            raise RuntimeError("Bad Request: can't parse entities")
+        self.messages.append((chat_id, text))
+
+
+real_loop_bot = LoopBot
+LoopBot = StrictBot
+bot, _ = asyncio.run(run_one_cycle([amp_page], channel="@krd_nahodki", ratio=0.7))
+LoopBot = real_loop_bot
+owner_texts = [t for c, t in bot.messages if c == 777]
+channel_texts = [t for c, t in bot.messages if c == "@krd_nahodki"]
+check("HTML: находка с «&» дошла владельцу",
+      any("Black &amp; Decker" in t for t in owner_texts), owner_texts)
+check("HTML: находка с «&» дошла в канал",
+      any("Black &amp; Decker" in t for t in channel_texts), channel_texts)
+check("HTML: и не заткнула очередь - следующий лот тоже вышел",
+      any("Makita" in t for t in channel_texts), channel_texts)
+
+# Отчёт, недельные посты и диагностика - тем же правилом.
+with am._connect() as c:
+    c.execute("UPDATE items SET sold_at = ? WHERE item_id = '96001'", (time.time(),))
+check("HTML: суточный отчёт Telegram примет", telegram_accepts(am.build_report(24)))
+check("HTML: недельная сводка Telegram примет", telegram_accepts(am.build_channel_digest()))
+check("HTML: разбор ушедшего Telegram примет", telegram_accepts(am.build_sold_proof()))
+
+
+async def nasty_fetch(url, source="avito"):
+    raise RuntimeError("Timeout <45000ms> exceeded & page closed")
+
+
+am.fetch_html = nasty_fetch
+am.sleep_setting = lambda: (None, "не спросил у Windows (<ошибка> & ещё)")
+un = FakeUpdate()
+asyncio.run(am.cmd_selfcheck(un, Ctx(ChannelBot(missing=True))))
+am.fetch_html, am.sleep_setting = real_fetch, real_sleep_check
+check("HTML: диагностика с «<» и «&» в ошибках Telegram примет",
+      telegram_accepts(un.message.texts[-1]), un.message.texts[-1])
+
 # --- кнопка «Проверить канал» ---
 # Забытое право на публикацию - самая частая беда с каналами, и узнать о
 # ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.
