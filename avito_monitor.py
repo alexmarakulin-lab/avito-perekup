@@ -135,11 +135,34 @@ CHANNEL_POST_HOUR = int(os.getenv("AVITO_CHANNEL_POST_HOUR", "19"))
 # каналу отдельно и на залпе отвечает отказом.
 CHANNEL_SEND_PAUSE = 1
 
+# Сколько часов после срока находка ещё годится для канала.
+#
+# Очередь копится, пока канал не принимает: отобрали права, переименовали,
+# компьютер лежал выключенным. После починки бот честно выкладывал всё
+# накопленное - смоделировано: после трёх суток простоя 45 постов за
+# четверть часа, из них 30 старше суток. Подписчики разом получали стену
+# находок, половина ссылок в которой мертва. Хорошие лоты уходят за
+# час-два, и через полсуток постить их как «находку» - уже неправда.
+CHANNEL_STALE_HOURS = 6
+
 # Час отправки суточного отчёта (по времени сервера).
 DIGEST_HOUR = int(os.getenv("AVITO_DIGEST_HOUR", "21"))
 
 # Сколько ранее найденных лотов перепроверять в сутки на предмет "продано".
 SOLD_CHECK_LIMIT = 40
+
+# Сколько дней лот вообще стоит перепроверять на «продано».
+#
+# Без этого ограничения очередь проверки медленно, но верно отравлялась.
+# Непроданные лоты никуда не деваются, каждый день снова встают в очередь,
+# и через пару недель все сорок мест в сутки съедали залежавшиеся - те,
+# что уже никогда не продадутся. Свежие, которые как раз и уходят, не
+# проверялись вовсе, и средовый пост снова выходил пустым. Смоделировано
+# на месяце работы: к двадцатому дню свежих в проверке было ноль.
+#
+# Неделя - потому что кормится этим недельный пост: лот, висевший дольше,
+# в разбор «разобрали за неделю» не годится, как ни проверяй.
+SOLD_CHECK_WINDOW_DAYS = 7
 
 # Прокси для запросов к Авито, если понадобится: http://user:pass@host:port
 AVITO_PROXY = os.getenv("AVITO_PROXY", "") or None
@@ -927,9 +950,17 @@ def all_queries() -> list:
     return [(key, q) for key, cat in CATEGORIES.items() for q in cat["queries"]]
 
 
-# Докуда дошли по кольцу. Переживает круги, но не перезапуск бота - и это
-# не беда: после перезапуска обход просто начнётся сначала.
-_query_cursor = 0
+def cycle_size() -> int:
+    """Сколько слов берётся за круг - посчитать, ничего не сдвигая.
+
+    Статус и «Проверить всё» узнавали это вызовом take_queries(), а тот
+    двигает кольцо. Каждое нажатие «Статуса» тихо пропускало пять
+    поисковых слов, и те ждали своей очереди лишний полный обход.
+    """
+    total = len(all_queries())
+    if QUERIES_PER_CYCLE <= 0 or QUERIES_PER_CYCLE >= total:
+        return total
+    return QUERIES_PER_CYCLE
 
 
 def take_queries() -> list:
@@ -940,19 +971,27 @@ def take_queries() -> list:
     крутится: за несколько кругов слова обойдутся все, просто вразвалку.
     Ничего не теряется, растягивается только время.
 
-    Времени этого больше, чем кажется: слов теперь пятьдесят одно (39 на
-    Авито, 12 на Wildberries), и при горсти в пять штук полный обход - это
-    одиннадцать кругов, около трёх часов. Цифру стоит держать в уме,
-    добавляя новые слова: каждое из них растягивает круг для всех
-    остальных.
+    Времени этого больше, чем кажется: при горсти в пять штук полный обход
+    занимает около трёх часов. Цифру стоит держать в уме, добавляя новые
+    слова: каждое из них растягивает круг для всех остальных.
+
+    Позиция в кольце лежит в базе, а не в памяти. Прежде здесь было
+    написано «после перезапуска обход просто начнётся сначала, и это не
+    беда». Беда: дома бот перезапускается после каждого обрыва связи, и
+    при перезапусках чаще полного обхода хвост списка не искался никогда.
+    Смоделировано: при перезапуске раз в два часа Wildberries за сутки не
+    искался ни разу, а чуть чаще - отваливалась и земля.
     """
-    global _query_cursor
     queries = all_queries()
     if QUERIES_PER_CYCLE <= 0 or QUERIES_PER_CYCLE >= len(queries):
         return queries
 
-    start = _query_cursor % len(queries)
-    _query_cursor = (start + QUERIES_PER_CYCLE) % len(queries)
+    try:
+        cursor = int(get_setting("query_cursor") or 0)
+    except ValueError:
+        cursor = 0
+    start = cursor % len(queries)
+    set_setting("query_cursor", str((start + QUERIES_PER_CYCLE) % len(queries)))
     # Кольцо: если горсть не помещается в хвост, добираем из начала списка.
     doubled = queries + queries
     return doubled[start:start + QUERIES_PER_CYCLE]
@@ -1365,6 +1404,24 @@ def due_for_channel(limit: int = 5) -> list:
     return [dict(r) for r in rows]
 
 
+def drop_stale_queue() -> int:
+    """Выбрасывает из очереди то, что опоздало сильнее, чем можно простить.
+
+    Удаляются только невыложенные: они в канал не попали, и считать их
+    выложенными было бы враньём уже в статистике. Возвращает, сколько
+    выброшено.
+    """
+    limit = time.time() - CHANNEL_STALE_HOURS * 3600
+    with _connect() as conn:
+        dropped = conn.execute(
+            "DELETE FROM channel_queue WHERE posted_at IS NULL AND due_at < ?", (limit,)
+        ).rowcount
+    if dropped:
+        logger.info(f"Канал: {dropped} находок опоздали больше чем на "
+                    f"{CHANNEL_STALE_HOURS} ч и выброшены, а не выложены")
+    return dropped
+
+
 def mark_posted(item_id: str):
     with _connect() as conn:
         conn.execute("UPDATE channel_queue SET posted_at = ? WHERE item_id = ?",
@@ -1382,6 +1439,7 @@ async def post_due_to_channel(bot) -> int:
     if not chat:
         return 0
 
+    drop_stale_queue()
     posted = 0
     for row in due_for_channel():
         item = {"item_id": row["item_id"], "title": row["title"], "price": row["price"],
@@ -1598,9 +1656,15 @@ def build_sold_proof(days: int = 7, limit: int = 5) -> str:
         line = f"• {r['title'][:55]} — {money(r['price'])} ₽"
         if r["market"]:
             line += f" (рынок {money(r['market'])} ₽)"
-        hours = (r["sold_at"] - r["posted_at"]) / 3600 if r["posted_at"] else None
-        if hours is not None and hours >= 0:
-            line += f", ушло за {int(hours)} ч" if hours >= 1 else ", ушло за час"
+        # Срок - верхняя граница, а не точное время. Бот узнаёт о снятии
+        # только когда проверяет, а каждый лот проверяется не чаще раза в
+        # сутки. Прежде тут писалось «ушло за 8 ч», хотя лот мог уйти за
+        # десять минут: точность была выдумана. Честная точность здесь -
+        # сутки, в них и считаем.
+        if r["posted_at"]:
+            days = max(1, int(-(-(r["sold_at"] - r["posted_at"]) // 86400)))
+            line += (", ушло меньше чем за сутки" if days == 1
+                     else f", ушло меньше чем за {days} {plural(days, 'день', 'дня', 'дней')}")
         lines.append(line)
 
     lines.append("\nВыводы делайте сами: хорошее здесь живёт часами, "
@@ -1852,7 +1916,7 @@ async def cmd_selfcheck(update, context):
         lines.append(f"⚪️ Сон: {note}")
 
     # 8. Скорость обхода - не поломка, но её стоит видеть.
-    per_cycle = len(take_queries())
+    per_cycle = cycle_size()
     queries = len(all_queries())
     cycle_min = max(1, int((per_cycle * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60))
     sweep = cycle_min * -(-queries // per_cycle)
@@ -1901,12 +1965,33 @@ async def check_sold():
     """
     cutoff = time.time() - 6 * 3600
     with _connect() as conn:
+        # Кого перепроверять - два условия, и оба выяснились на деле.
+        #
+        # 1. Не только то, что ушло владельцу, но и то, что выложено в
+        #    канал. Метку alerted ставит лишь отправка в личку, а находки
+        #    канала в основном мягкие и в личку не идут. Проверялись
+        #    поэтому только они, и средовый пост «Разобрали за неделю»
+        #    месяц выходил пустым: ему нечего было показать.
+        #
+        # 2. Только Авито. Карточки Wildberries - витрина магазина, «снято
+        #    с публикации» там не бывает вовсе, а открывались они по
+        #    авитовской дороге, с разогревом на главной Авито. То есть на
+        #    каждую - лишнее обращение к Авито, ради ответа, которого быть
+        #    не может.
         rows = conn.execute(
+            #
+            # 3. По кругу: сначала ни разу не проверенные, потом те, что
+            #    проверялись давнее всех. Прежний порядок «самые старые
+            #    вперёд» каждый день отдавал места одним и тем же.
             "SELECT item_id, url FROM items "
-            "WHERE sold_at IS NULL AND alerted = 1 AND first_seen < ? "
+            "WHERE sold_at IS NULL AND first_seen < ? AND first_seen > ? "
             "AND (last_check IS NULL OR last_check < ?) "
-            "ORDER BY first_seen LIMIT ?",
-            (cutoff, time.time() - 86400, SOLD_CHECK_LIMIT),
+            "AND url LIKE 'https://www.avito.ru/%' "
+            "AND (alerted = 1 OR item_id IN "
+            "     (SELECT item_id FROM channel_queue WHERE posted_at IS NOT NULL)) "
+            "ORDER BY last_check IS NOT NULL, last_check, first_seen DESC LIMIT ?",
+            (cutoff, time.time() - SOLD_CHECK_WINDOW_DAYS * 86400,
+             time.time() - 86400, SOLD_CHECK_LIMIT),
         ).fetchall()
 
     for row in rows:
@@ -2032,8 +2117,13 @@ async def monitor_loop(bot):
     """Крутится вечно рядом с ботом: обходит категории, шлёт находки и отчёт."""
     init_db()
     backoff = 0
-    last_digest_day = None
-    last_sold_check = 0.0
+    # Когда что делалось в последний раз - в базе, а не в памяти.
+    #
+    # Дома бот перезапускается после каждого обрыва связи, и память это
+    # не переживает. С отметками в памяти каждый перезапуск запускал
+    # проверку продаж заново - до сорока страниц Авито подряд, почти час,
+    # в который круг стоял и ничего не искал, - а перезапуск в девятом
+    # часу вечера присылал суточный отчёт второй раз.
 
     logger.info("Монитор Авито: цикл запущен")
 
@@ -2128,16 +2218,17 @@ async def monitor_loop(bot):
                 logger.error(f"Канал: недельный пост не собрался ({exc})")
 
             now = datetime.now()
-            if now.hour == DIGEST_HOUR and last_digest_day != now.date():
-                last_digest_day = now.date()
+            today = now.date().isoformat()
+            if now.hour == DIGEST_HOUR and get_setting("digest_date") != today:
+                set_setting("digest_date", today)
                 try:
                     await bot.send_message(chat_id=chat_id, text=build_report(24),
                                            parse_mode="HTML")
                 except Exception as exc:
                     logger.error(f"Монитор Авито: отчёт не ушёл ({exc})")
 
-            if time.time() - last_sold_check > 86400:
-                last_sold_check = time.time()
+            if time.time() - float(get_setting("sold_check_at") or 0) > 86400:
+                set_setting("sold_check_at", str(time.time()))
                 await check_sold()
 
             await asyncio.sleep(CYCLE_PAUSE)
@@ -2164,7 +2255,7 @@ async def cmd_avito(update, context):
         sold = conn.execute("SELECT COUNT(*) c FROM items WHERE sold_at IS NOT NULL").fetchone()["c"]
 
     queries = len(all_queries())
-    per_cycle = len(take_queries())
+    per_cycle = cycle_size()
     cycle_min = max(1, int((per_cycle * (REQ_DELAY_MIN + REQ_DELAY_MAX) / 2 + CYCLE_PAUSE) / 60))
     # Сколько ждать, пока очередь обойдёт все слова и вернётся к первому.
     sweep_min = cycle_min * -(-queries // per_cycle)

@@ -1002,7 +1002,7 @@ async def run_one_cycle(pages, chat_owner=777, channel=None, ratio=None):
 
 # Рынок: девять перфораторов около 4000 - чтобы медиана была настоящей.
 am.QUERIES_PER_CYCLE = 1
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 am.save_items("instrument", "перфоратор", [
     {"item_id": f"loop_bg{i}", "title": f"Перфоратор рабочий {i}", "price": 4000,
      "url": f"https://www.avito.ru/krasnodar/bg{i}", "address": ""} for i in range(12)])
@@ -1037,7 +1037,7 @@ check("круг: в базу легли все карточки, а не тол�
 # Тот же круг, но с каналом. Карточки нужны новые: те, что уже в базе,
 # новыми не считаются и в рассылку не идут - иначе канал получал бы один и
 # тот же лот каждый круг, пока объявление висит.
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 page2 = make_page([
     {"id": 90011, "title": f"{query} Bosch, срочно", "price": 1600},
     {"id": 90012, "title": f"{query} Makita", "price": 2800},
@@ -1060,7 +1060,7 @@ check("круг с каналом: рыночная цена не ушла ни�
 # сломать его можно, не тронув ни одной отдельной функции.
 am.QUERIES_PER_CYCLE = 1
 land_key, land_query = "land", am.CATEGORIES["land"]["queries"][0]
-am._query_cursor = [c for c, _ in am.all_queries()].index(land_key)
+am.set_setting("query_cursor", str([c for c, _ in am.all_queries()].index(land_key)))
 am.save_items(land_key, am.stats_key("avito", land_query), [
     {"item_id": f"lbg{i}", "title": f"{land_query} {10 + i} сот", "price": 500000,
      "url": f"https://www.avito.ru/dinskaya/lbg{i}", "address": "Динская"}
@@ -1084,17 +1084,17 @@ check("земля: владельцу показана цена за сотку"
 
 # А инструмент из того же круга в канал идти обязан - запрет именной, а не
 # «в канал вообще ничего не уходит».
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 tool_page = make_page([{"id": 95010, "title": f"{query} Makita", "price": 2800}])
 bot, _ = asyncio.run(run_one_cycle([tool_page], channel="@krd_nahodki", ratio=0.7))
 check("земля: запрет не задел инструмент - он в канал идёт",
       [t for c, t in bot.messages if c == "@krd_nahodki"], bot.messages)
 
 am.QUERIES_PER_CYCLE = 1
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 
 # Блокировка Авито посреди круга: цикл не должен ни падать, ни молчать.
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 am.set_setting("enabled", "1")
 am.set_setting("owner_chat", "777")
 blocked_bot = LoopBot()
@@ -1174,7 +1174,138 @@ check("сводка: находкой недели названа самая в�
 
 proof = am.build_sold_proof()
 check("разбор: показывает снятое с публикации", "w" not in proof and "3 000" in proof, proof[:90])
-check("разбор: показывает, за сколько часов ушло", "ушло за" in proof, proof[:200])
+check("разбор: показывает, за какой срок ушло", "ушло меньше чем за" in proof, proof[:200])
+# Лот проверяется не чаще раза в сутки, и «ушло за 8 ч» выдумывало
+# точность, которой нет: лот мог уйти и за десять минут.
+check("разбор: не выдумывает часовую точность",
+      re.search(r"ушло за \d+ ч", proof) is None, proof[:200])
+
+# --- проверка продаж: кого перепроверять ---
+# Поломка, прожившая месяц. Прежние проверки разбора ставили «продано»
+# руками и поэтому не видели главного: сама проверка продаж находок
+# канала не касалась. Метку alerted ставит только отправка в личку, а
+# находки канала в основном мягкие, в личку не идут - и средовый пост
+# месяц выходил пустым. Эти проверки идут через check_sold, как в жизни.
+long_ago = time.time() - 3 * 86400
+sold_lots = [
+    {"item_id": "cs_own", "title": "Перфоратор горячий", "price": 1500,
+     "url": "https://www.avito.ru/krasnodar/cs_own", "address": ""},
+    {"item_id": "cs_chan", "title": "Перфоратор мягкий", "price": 2800,
+     "url": "https://www.avito.ru/krasnodar/cs_chan", "address": ""},
+    {"item_id": "cs_wb", "title": "iPhone 15 новый", "price": 60000,
+     "url": "https://www.wildberries.ru/catalog/555/detail.aspx", "address": ""},
+    {"item_id": "cs_none", "title": "Перфоратор никуда не ушедший", "price": 3900,
+     "url": "https://www.avito.ru/krasnodar/cs_none", "address": ""},
+]
+am.save_items("instrument", "перфоратор", [sold_lots[0], sold_lots[1], sold_lots[3]])
+am.save_items("wb_apple", "wb:iphone", [sold_lots[2]])
+with am._connect() as c:
+    c.execute("UPDATE items SET first_seen = ?, last_check = NULL WHERE item_id LIKE 'cs_%'",
+              (long_ago,))
+    c.execute("UPDATE items SET alerted = 1 WHERE item_id IN ('cs_own', 'cs_wb')")
+am.queue_for_channel(sold_lots[1], "instrument", "дешевле", 4000, delay=-1)
+am.mark_posted("cs_chan")
+
+opened = []
+
+
+async def removed_page(url, source="avito"):
+    opened.append(url)
+    return "<html>Объявление снято с публикации</html>"
+
+
+real_fetch, real_min, real_max = am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX
+am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = removed_page, 0, 0
+asyncio.run(am.check_sold())
+am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = real_fetch, real_min, real_max
+
+
+def sold(item_id):
+    with am._connect() as c:
+        return c.execute("SELECT sold_at FROM items WHERE item_id = ?",
+                         (item_id,)).fetchone()["sold_at"] is not None
+
+
+check("продажи: ушедшее владельцу перепроверено", sold("cs_own"))
+check("продажи: выложенное только в канал тоже перепроверено", sold("cs_chan"))
+check("продажи: Wildberries не открывался вовсе",
+      not any("wildberries" in u for u in opened), opened)
+check("продажи: лот, никуда не отправленный, не тратит обращений",
+      not any("cs_none" in u for u in opened), opened)
+check("продажи: после проверки средовому посту есть что показать",
+      "Перфоратор мягкий" in am.build_sold_proof(), am.build_sold_proof()[:200])
+
+# --- проверка продаж не голодает со временем ---
+# Первая починка проверки продаж продержалась бы неделю: непроданные лоты
+# каждый день снова вставали в начало очереди «самые старые вперёд», и к
+# двадцатому дню свежих в проверке было ноль. Здесь - та же модель,
+# сжатая: три недели, по шесть лотов в день, половина уходит за сутки-двое,
+# половина висит вечно, а мест в проверке мало.
+def starvation_run():
+    clock = [time.time() - 25 * 86400]
+    real_time, real_limit = am.time.time, am.SOLD_CHECK_LIMIT
+    am.time.time, am.SOLD_CHECK_LIMIT = (lambda: clock[0]), 8
+    fate, per_day = {}, []
+
+    async def page(url, source="avito"):
+        iid = url.rsplit("/", 1)[1]
+        per_day[-1].append(iid)
+        return "снято с публикации" if clock[0] >= fate[iid] else "в продаже"
+
+    real_fetch, real_min, real_max = am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX
+    am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = page, 0, 0
+    try:
+        for day in range(21):
+            for k in range(6):
+                iid = f"st{day}_{k}"
+                lot = {"item_id": iid, "title": f"Перфоратор {iid}", "price": 2800,
+                       "url": f"https://www.avito.ru/krasnodar/{iid}", "address": ""}
+                am.save_items("instrument", "перфоратор", [lot])
+                am.queue_for_channel(lot, "instrument", "дешевле", 4000, delay=-1)
+                am.mark_posted(iid)
+                fate[iid] = (clock[0] + (1 + k % 3 * 0.5) * 86400) if k % 2 == 0 else float("inf")
+            clock[0] += 86400
+            per_day.append([])
+            asyncio.run(am.check_sold())
+    finally:
+        am.time.time, am.SOLD_CHECK_LIMIT = real_time, real_limit
+        am.fetch_html, am.REQ_DELAY_MIN, am.REQ_DELAY_MAX = real_fetch, real_min, real_max
+    return per_day
+
+
+days = starvation_run()
+last = days[-1]
+fresh_last = [i for i in last if int(i[2:].split("_")[0]) >= 18]
+check("продажи: и на третьей неделе свежие лоты проверяются",
+      len(fresh_last) >= 6, f"свежих {len(fresh_last)} из {len(last)}: {last}")
+check("продажи: лоты старше недели не проверяются вовсе",
+      all(int(i[2:].split("_")[0]) >= 21 - 8 for i in last), last)
+
+# --- отметки расписания переживают перезапуск ---
+# Дома бот поднимается после каждого обрыва связи. С отметками в памяти
+# каждый подъём запускал проверку продаж заново - до сорока страниц
+# Авито подряд, почти час без поиска.
+sold_calls = []
+
+
+async def counting_check_sold():
+    sold_calls.append(1)
+
+
+real_check_sold = am.check_sold
+am.check_sold = counting_check_sold
+am.set_setting("sold_check_at", "")
+am.set_setting("query_cursor", str(0))
+asyncio.run(run_one_cycle([make_page([])]))
+first_run = len(sold_calls)
+am.set_setting("query_cursor", str(0))
+asyncio.run(run_one_cycle([make_page([])]))            # «перезапуск»
+am.check_sold = real_check_sold
+check("расписание: проверка продаж в первый раз запускается", first_run == 1, first_run)
+check("расписание: перезапуск не гонит проверку продаж заново",
+      len(sold_calls) == 1, len(sold_calls))
+check("расписание: время проверки продаж записано в базу",
+      float(am.get_setting("sold_check_at") or 0) > time.time() - 60)
 check("разбор: не обещает продажу, которой не видел",
       "снято с Авито" in proof and "продано" not in proof.lower(), proof[:120])
 
@@ -1414,6 +1545,50 @@ am.fetch_html, am.sleep_setting = real_fetch, real_sleep_check
 am.set_setting("enabled", "0")
 am.set_setting("channel_chat", "")
 
+# --- залежавшаяся очередь канала ---
+# После трёх суток, когда канал не принимал, бот выкладывал всё накопленное
+# разом: 45 постов за четверть часа, 30 из них старше суток, половина
+# ссылок мертва. Лучший способ заставить подписчиков отписаться.
+am.set_setting("channel_chat", "@krd_nahodki")
+with am._connect() as c:
+    c.execute("DELETE FROM channel_queue WHERE posted_at IS NULL")
+stale_now = time.time()
+for age_h, iid in ((72, "stale3d"), (30, "stale30h"), (7, "stale7h"), (2, "fresh2h"), (0, "fresh0")):
+    lot = {"item_id": iid, "title": f"Перфоратор {iid}", "price": 2800,
+           "url": f"https://www.avito.ru/krasnodar/{iid}", "address": ""}
+    am.save_items("instrument", "перфоратор", [lot])
+    am.queue_for_channel(lot, "instrument", "дешевле", 4000, delay=-1)
+    with am._connect() as c:
+        c.execute("UPDATE channel_queue SET due_at = ? WHERE item_id = ?",
+                  (stale_now - age_h * 3600 - 1, iid))
+
+
+class Collect:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent.append(text)
+
+
+am.CHANNEL_SEND_PAUSE = 0
+collector = Collect()
+asyncio.run(am.post_due_to_channel(collector))
+am.CHANNEL_SEND_PAUSE = 1
+posted_ids = [iid for iid in ("stale3d", "stale30h", "stale7h", "fresh2h", "fresh0")
+              if any(iid in t for t in collector.sent)]
+check("канал: свежие находки после простоя выложены",
+      "fresh2h" in posted_ids and "fresh0" in posted_ids, posted_ids)
+check("канал: опоздавшие больше чем на 6 ч не выложены",
+      not {"stale3d", "stale30h", "stale7h"} & set(posted_ids), posted_ids)
+with am._connect() as c:
+    left = [r["item_id"] for r in c.execute(
+        "SELECT item_id FROM channel_queue WHERE item_id LIKE 'stale%'")]
+check("канал: опоздавшие убраны из очереди, а не отложены навечно", left == [], left)
+check("канал: выброшенное не считается выложенным",
+      all("stale" not in t for t in collector.sent))
+am.set_setting("channel_chat", "")
+
 # --- кнопка «Проверить канал» ---
 # Забытое право на публикацию - самая частая беда с каналами, и узнать о
 # ней было неоткуда: находка молча ложилась в очередь, отказ уходил в лог.
@@ -1465,7 +1640,7 @@ am.set_setting("channel_chat", "")
 # 06.08.2026. Проверяем, что горстями обходятся все слова и без пропусков.
 am.QUERIES_PER_CYCLE = 4
 total = len(am.all_queries())
-am._query_cursor = 0
+am.set_setting("query_cursor", str(0))
 seen = []
 for _ in range((total + 3) // 4):
     seen.extend(am.take_queries())
@@ -1473,9 +1648,47 @@ check("очередь: за круг берётся ровно горсть", le
 check("очередь: за несколько кругов обходятся все слова",
       set(seen) == set(am.all_queries()), f"{len(set(seen))} из {total}")
 
-am._query_cursor = total - 2
+am.set_setting("query_cursor", str(total - 2))
 tail = am.take_queries()
 check("очередь: с конца списка добирает с начала", len(tail) == 4 and len(set(tail)) == 4, tail)
+
+# Позиция в кольце переживает перезапуск. Прежде она жила в памяти, и
+# после каждого подъёма обход начинался с первого слова: при перезапусках
+# чаще полного обхода хвост списка - Wildberries, а за ним и земля - не
+# искался никогда.
+am.set_setting("query_cursor", "0")
+before_restart = am.take_queries()
+import importlib
+importlib.reload(am)                         # то, что делает перезапуск
+am.init_db()
+am.USE_CFFI = False
+am.USE_BROWSER = False
+am.QUERIES_PER_CYCLE = 4
+after_restart = am.take_queries()
+check("очередь: после перезапуска обход продолжается, а не начинается заново",
+      after_restart != before_restart and after_restart[0] == am.all_queries()[4],
+      (before_restart[0], after_restart[0]))
+
+# Сутки перезапусков каждые два часа: до хвоста списка дойти обязаны.
+am.set_setting("query_cursor", "0")
+reached = set()
+for _ in range(12):
+    importlib.reload(am); am.init_db(); am.QUERIES_PER_CYCLE = 5
+    for _ in range(8):
+        reached |= {c for c, _ in am.take_queries()}
+am.USE_CFFI = False
+am.USE_BROWSER = False
+am.QUERIES_PER_CYCLE = 4
+check("очередь: при частых перезапусках ищутся все категории, включая хвост",
+      reached == {c for c, _ in am.all_queries()},
+      sorted({c for c, _ in am.all_queries()} - reached))
+
+# «Статус» и «Проверить всё» только смотрят, сколько слов за круг, - и не
+# имеют права двигать кольцо. Прежде каждое нажатие пропускало горсть слов.
+am.set_setting("query_cursor", "7")
+am.cycle_size(); am.cycle_size(); am.cycle_size()
+check("очередь: подсчёт размера круга кольцо не двигает",
+      am.get_setting("query_cursor") == "7", am.get_setting("query_cursor"))
 
 am.QUERIES_PER_CYCLE = 0
 check("очередь: ноль означает все слова разом", len(am.take_queries()) == total)
